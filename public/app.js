@@ -38,11 +38,13 @@ const TYPES = {
   quote: { label: 'Citation', desc: 'Capturez une citation.', icon: '❝', keys: 'citation quote' },
   callout: { label: 'Encadré', desc: 'Faites ressortir un texte.', icon: '💡', keys: 'encadre encadré callout note' },
   code: { label: 'Code', desc: 'Bloc de code.', icon: '</>', keys: 'code snippet' },
+  table: { label: 'Tableau', desc: 'Lignes et colonnes, comme dans un tableur.', icon: '▦', keys: 'tableau table grille tableur colonnes' },
   divider: { label: 'Séparateur', desc: 'Séparez visuellement les blocs.', icon: '—', keys: 'separateur séparateur divider ligne hr' },
   page: { label: 'Page', desc: 'Intégrez une sous-page.', icon: '📄', keys: 'page sous-page subpage' },
 };
 const TEXT_TYPES = ['p', 'h1', 'h2', 'h3', 'todo', 'ul', 'ol', 'toggle', 'quote', 'callout', 'code'];
 const CONTINUE_TYPES = ['todo', 'ul', 'ol'];
+const PROP_KEYS = ['checked', 'collapsed', 'icon', 'lang', 'pageId', 'rows', 'headerRow', 'headerCol'];
 const LIST_TYPES = ['todo', 'ul', 'ol', 'toggle'];
 const PLACEHOLDER = { p: "Écrivez, ou tapez « / » pour les commandes…", h1: 'Titre 1', h2: 'Titre 2', h3: 'Titre 3', todo: 'À faire', ul: 'Liste', ol: 'Liste', toggle: 'Liste dépliante', quote: 'Citation vide', callout: 'Écrivez quelque chose…', code: '' };
 
@@ -471,6 +473,9 @@ function blockEl(b, num, only) {
   if (b.type === 'divider') {
     row.tabIndex = 0;
     row.append(h('div', { class: 'content' }, h('hr')));
+  } else if (b.type === 'table') {
+    row.tabIndex = -1;
+    row.append(Table.render(b));
   } else if (b.type === 'page') {
     row.tabIndex = 0;
     const sp = S.pages[b.pageId];
@@ -492,6 +497,7 @@ function blockEl(b, num, only) {
 function focusBlock(id, pos = 'end') {
   const row = $(`.block[data-id="${id}"]`);
   if (!row) return;
+  if (row.dataset.type === 'table') { Table.focus(blk(id), pos === 'end' ? 'end' : 0); return; }
   const c = row.querySelector('.content[contenteditable]');
   if (c) setCaret(c, pos);
   else row.focus();
@@ -531,6 +537,7 @@ function nextVisible(id) {
 function setType(b, type) {
   if (b.type === 'code' && type !== 'code') b.text = esc(b.text).replace(/\n/g, '<br>');
   else if (type === 'code' && b.type !== 'code') b.text = plain(b.text.replace(/<br>/g, '\n'));
+  if (type === 'table' && b.type !== 'table') Table.create(b, b.type === 'code' ? esc(b.text) : b.text);
   b.type = type;
   if (type === 'callout' && !b.icon) b.icon = '💡';
   if (type === 'toggle') b.collapsed = false;
@@ -555,7 +562,7 @@ function turnInto(b, type) {
     const nxt = p.blocks[idx(b.id) + 1];
     if (!nxt) insertAfter(b.id, nb), renderBlocks(), focusBlock(nb.id, 0);
     else focusBlock(nxt.id, 0);
-  } else focusBlock(b.id, 'end');
+  } else focusBlock(b.id, type === 'table' ? 0 : 'end');
   renderSidebar();
 }
 function deleteBlock(id) {
@@ -606,6 +613,7 @@ function shiftBlock(id, dir) {
 /* ---------- Éditeur : événements ---------- */
 
 let slash = null; // { id, start }
+let lastCell = null; // dernière cellule de tableau active
 let dragId = null;
 
 function bindBlocks(box) {
@@ -613,6 +621,18 @@ function bindBlocks(box) {
   box.addEventListener('keydown', onKey);
   box.addEventListener('paste', onPaste);
   box.addEventListener('click', onClick);
+  box.addEventListener('contextmenu', (e) => {
+    const cell = e.target.closest('.cell');
+    if (!cell) return;
+    const tb = blk(cell.closest('.block').dataset.id);
+    if (!tb) return;
+    e.preventDefault();
+    menu({ getBoundingClientRect: () => ({ left: e.clientX, top: e.clientY, bottom: e.clientY }) }, Table.cellMenu(tb, +cell.dataset.r, +cell.dataset.c));
+  });
+  box.addEventListener('focusin', (e) => {
+    const cell = e.target.closest('.cell');
+    if (cell) lastCell = { id: cell.closest('.block').dataset.id, r: +cell.dataset.r, c: +cell.dataset.c };
+  });
   box.addEventListener('focusin', (e) => { const row = e.target.closest('.block'); if (CLOUD && row) Cloud.here(row.dataset.id); });
   box.addEventListener('mousedown', (e) => { if (e.target.closest('[data-act]') && e.target.closest('.prefix')) e.preventDefault(); });
   box.addEventListener('dragstart', (e) => {
@@ -650,6 +670,8 @@ const SHORTCUTS = [
 ];
 
 function onInput(e) {
+  const cell = e.target.closest('.cell');
+  if (cell) { const tb = blk(cell.closest('.block').dataset.id); if (tb) Table.onInput(tb, cell); return; }
   const c = e.target.closest('.content');
   if (!c) return;
   const row = c.closest('.block');
@@ -687,6 +709,9 @@ function onKey(e) {
   if (!row) return;
   const b = blk(row.dataset.id);
   if (!b) return;
+
+  const cell = e.target.closest('.cell');
+  if (cell) { Table.onKey(e, b, cell); return; }
 
   if (slash && slashKey(e)) return;
 
@@ -785,6 +810,11 @@ function onKey(e) {
       else setCaret($('.page-title'), 'end');
       return;
     }
+    if (pv.type === 'table') {
+      if (!c.textContent.length) { pg().blocks.splice(idx(b.id), 1); touch(pg()); renderBlocks(); }
+      focusBlock(pv.id, 'end');
+      return;
+    }
     if (pv.type === 'divider' || pv.type === 'page') {
       if (!c.textContent.length) { deleteBlock(b.id); return; }
       pg().blocks.splice(idx(pv.id), 1); touch(pg()); renderBlocks(); focusBlock(b.id, 0); return;
@@ -800,7 +830,7 @@ function onKey(e) {
 
   if (e.key === 'Delete' && collapsed && off === c.textContent.length) {
     const nx = nextVisible(b.id);
-    if (!nx) return;
+    if (!nx || nx.type === 'table') return;
     e.preventDefault();
     if (nx.type === 'divider' || nx.type === 'page') { pg().blocks.splice(idx(nx.id), 1); }
     else if (b.type !== 'code' && nx.type !== 'code') { b.text = (b.text || '').replace(/<br>$/, '') + nx.text; pg().blocks.splice(idx(nx.id), 1); }
@@ -890,7 +920,10 @@ function parseLine(line) {
 function mdToBlocks(text) {
   const out = [];
   let code = null;
+  let tbl = null;
   for (const line of String(text).replace(/\r\n?/g, '\n').split('\n')) {
+    if (!code && /^\s*\|.*\|\s*$/.test(line)) { (tbl = tbl || []).push(line); continue; }
+    if (tbl) { out.push(Table.parseMd(tbl)); tbl = null; }
     if (/^\s*```/.test(line)) {
       if (code) { code = null; continue; }
       code = { id: uid(), type: 'code', text: '', indent: 0, lang: line.trim().slice(3).trim() };
@@ -901,6 +934,7 @@ function mdToBlocks(text) {
     if (!line.trim()) continue;
     out.push(parseLine(line));
   }
+  if (tbl) out.push(Table.parseMd(tbl));
   return out;
 }
 
@@ -914,6 +948,8 @@ function inlineMd(s) {
 }
 
 function onPaste(e) {
+  const cell = e.target.closest('.cell');
+  if (cell) { const tb = blk(cell.closest('.block').dataset.id); if (tb) Table.onPaste(e, tb, cell); return; }
   const c = e.target.closest('.content[contenteditable]');
   if (!c) return;
   e.preventDefault();
@@ -984,6 +1020,8 @@ function onClick(e) {
     }
     case 'menu':
       blockMenu(b, act); break;
+    case 'tbl-row': case 'tbl-col':
+      Table.onAction(act.dataset.act, b); break;
   }
 }
 
@@ -1100,9 +1138,13 @@ function blockMenu(b, anchor) {
   ];
   if (b.type !== 'divider') items.push({ icon: '✨', label: 'Demander à l’IA', right: 'Ctrl+J', action: () => AI.open(b.id) });
   if (b.type === 'code') items.push({ icon: '⌘', label: 'Langage…', action: () => { const l = prompt('Langage', b.lang || ''); if (l != null) { b.lang = l.trim(); touch(pg()); renderBlocks(); } } });
-  if (b.type !== 'page' && b.type !== 'divider') {
+  if (b.type === 'table') {
+    const lc = lastCell && lastCell.id === b.id ? lastCell : { r: 0, c: 0 };
+    items.push('-', ...Table.cellMenu(b, Math.min(lc.r, b.rows.length - 1), Math.min(lc.c, b.rows[0].length - 1)));
+  }
+  if (b.type !== 'page' && b.type !== 'divider' && b.type !== 'table') {
     items.push('-', { header: 'Transformer en' });
-    TEXT_TYPES.concat(['page']).forEach((t) => { if (t !== b.type) items.push({ icon: TYPES[t].icon, label: TYPES[t].label, action: () => turnInto(b, t) }); });
+    TEXT_TYPES.concat(['table', 'page']).forEach((t) => { if (t !== b.type) items.push({ icon: TYPES[t].icon, label: TYPES[t].label, action: () => turnInto(b, t) }); });
   }
   menu(anchor, items);
 }
@@ -1217,7 +1259,7 @@ function openSearch() {
       const path = ancestors(p).map(titleOf).join(' / ');
       if (!nq) { out.push({ id: p.id, icon: iconOf(p), label: titleOf(p), snip: path, score: -p.updatedAt }); continue; }
       if (norm(titleOf(p)).includes(nq)) { out.push({ id: p.id, icon: iconOf(p), label: titleOf(p), snip: path, score: 0 }); continue; }
-      const hit = p.blocks.map((b) => (b.type === 'code' ? b.text : plain(b.text))).find((t) => norm(t).includes(nq));
+      const hit = p.blocks.map((b) => (b.type === 'code' ? b.text : b.type === 'table' ? Table.plainText(b) : plain(b.text))).find((t) => norm(t).includes(nq));
       if (hit) {
         const i = norm(hit).indexOf(nq);
         out.push({ id: p.id, icon: iconOf(p), label: titleOf(p), snip: (i > 30 ? '…' : '') + hit.slice(Math.max(0, i - 30), i + 60), score: 1 });
@@ -1391,6 +1433,7 @@ function toMarkdown(p) {
       case 'code': out.push('```' + (b.lang || ''), t, '```', ''); break;
       case 'divider': out.push('---', ''); break;
       case 'page': out.push(`${ind}📄 ${titleOf(S.pages[b.pageId])}`, ''); break;
+      case 'table': out.push(Table.toMd(b), ''); break;
       default: out.push(ind + t, '');
     }
     if (b.type !== 'ol') counters[b.indent || 0] = 0;

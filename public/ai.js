@@ -9,7 +9,9 @@ const AI = (() => {
     'Tu es l’assistant d’écriture intégré à ReNotion, un éditeur de notes par blocs.',
     'Réponds uniquement avec le contenu demandé, prêt à être inséré dans la page : pas de phrase d’introduction ni de conclusion du type « Voici… ».',
     'Formate en Markdown simple : titres (#, ##, ###), listes (-), listes numérotées (1.), cases à cocher (- [ ]), citations (>), **gras**, *italique*, `code`, blocs ```.',
-    'N’utilise pas de tableaux. Réponds dans la langue du texte fourni, sauf si l’instruction demande une autre langue.',
+    'Tu peux utiliser des tableaux Markdown (| col | col | puis | --- | --- |) quand c’est utile : ils deviennent de vrais tableaux dans la page.',
+    'Quand le texte ciblé est un tableau, réponds avec le tableau complet mis à jour en Markdown (toutes les lignes, en-tête compris), sauf si on te demande autre chose.',
+    'Réponds dans la langue du texte fourni, sauf si l’instruction demande une autre langue.',
   ].join(' ');
 
   const TEXT_ACTIONS = [
@@ -23,12 +25,22 @@ const AI = (() => {
     ['🇫🇷', 'Traduire en français', 'Traduis le texte ciblé en français.'],
     ['💡', 'Expliquer', 'Explique simplement le texte ciblé.'],
   ];
+  const TABLE_ACTIONS = [
+    ['🪄', 'Remplir les cellules vides', 'Remplis toutes les cellules vides du tableau avec des valeurs pertinentes et cohérentes avec le reste. Garde les cellules déjà remplies telles quelles.'],
+    ['➕', 'Ajouter des lignes', 'Ajoute 5 nouvelles lignes pertinentes à la fin du tableau, dans la continuité des lignes existantes.'],
+    ['🧱', 'Ajouter une colonne utile', 'Ajoute une colonne pertinente au tableau et remplis-la pour chaque ligne.'],
+    ['✅', 'Corriger le tableau', 'Corrige l’orthographe, la grammaire et les incohérences dans le tableau.'],
+    ['🇬🇧', 'Traduire en anglais', 'Traduis tout le contenu du tableau en anglais.'],
+    ['🇫🇷', 'Traduire en français', 'Traduis tout le contenu du tableau en français.'],
+    ['📝', 'Résumer le tableau', 'Résume en quelques points ce que montre le tableau (ne renvoie pas le tableau).'],
+  ];
   const PAGE_ACTIONS = [
     ['🖊', 'Continuer à écrire', 'Continue la page de façon naturelle à partir de là où elle s’arrête (quelques paragraphes).'],
     ['📝', 'Résumer la page', 'Résume la page en quelques points clés.'],
     ['☑', 'Extraire les tâches', 'Extrais toutes les actions à faire de la page sous forme de cases à cocher (- [ ]).'],
     ['🧠', 'Trouver des idées', 'Propose une liste d’idées originales en lien avec le sujet de la page.'],
     ['🗂', 'Rédiger un plan', 'Propose un plan structuré (titres et sous-points) pour le sujet de la page.'],
+    ['▦', 'Créer un tableau', 'Crée un tableau Markdown utile et bien rempli en lien avec le sujet de la page (par exemple une comparaison, un planning ou un récapitulatif).'],
   ];
 
   function pageMarkdown(p) {
@@ -44,6 +56,7 @@ const AI = (() => {
     const t = { page: p, blockId: blockId || null, text: '', sel: null };
     const b = blockId && p.blocks.find((x) => x.id === blockId);
     if (!b) return t;
+    if (b.type === 'table') { t.text = Table.toMd(b); t.table = true; return t; }
     const c = document.querySelector(`.block[data-id="${blockId}"] .content[contenteditable]`);
     const s = getSelection();
     if (c && s.rangeCount && !s.isCollapsed && c.contains(s.anchorNode) && c.contains(s.focusNode)) {
@@ -66,17 +79,17 @@ const AI = (() => {
     if (!target) return;
     closePop();
 
-    const input = h('input', { type: 'text', placeholder: target.text.trim() ? 'Que faire avec ce texte ?' : 'Demander à l’IA d’écrire, résumer, brainstormer…', 'aria-label': 'Demande à l’IA' });
+    const input = h('input', { type: 'text', placeholder: target.table ? 'Que faire avec ce tableau ? (ex. « ajoute une colonne prix »)' : target.text.trim() ? 'Que faire avec ce texte ?' : 'Demander à l’IA d’écrire, résumer, brainstormer…', 'aria-label': 'Demande à l’IA' });
     const send = h('button', { class: 'icon-btn ai-send', title: 'Envoyer' }, '↑');
     const out = h('div', { class: 'ai-out', hidden: true });
     const list = h('div', { class: 'ai-list' });
     const foot = h('div', { class: 'ai-foot', hidden: true });
     const panel = h('div', { class: 'pop ai-panel', id: 'ai' }, h('div', { class: 'ai-input' }, h('span', { class: 'ai-spark' }, '✨'), input, send), out, foot, list);
 
-    const actions = target.text.trim() ? TEXT_ACTIONS : PAGE_ACTIONS;
+    const actions = target.table ? TABLE_ACTIONS : target.text.trim() ? TEXT_ACTIONS : PAGE_ACTIONS;
     const drawList = () => {
       list.innerHTML = '';
-      list.append(h('div', { class: 'hdr' }, target.text.trim() ? (target.sel ? 'Modifier la sélection' : 'Modifier ce bloc') : 'Écrire avec l’IA'));
+      list.append(h('div', { class: 'hdr' }, target.table ? 'Modifier ce tableau' : target.text.trim() ? (target.sel ? 'Modifier la sélection' : 'Modifier ce bloc') : 'Écrire avec l’IA'));
       actions.forEach(([ic, label, instr]) => list.append(h('button', { class: 'item', onclick: () => run(instr, label) }, h('span', { class: 'ic' }, ic), label)));
       if (target.text.trim()) {
         list.append(h('div', { class: 'hdr' }, 'Page'));
@@ -110,7 +123,7 @@ const AI = (() => {
       const user = [
         `Titre de la page : ${titleOf(target.page)}`,
         `Contenu de la page (Markdown) :\n<<<\n${pageMarkdown(target.page)}\n>>>`,
-        target.text.trim() ? `Texte ciblé :\n<<<\n${target.text}\n>>>` : '',
+        target.text.trim() ? `${target.table ? 'Tableau ciblé (Markdown)' : 'Texte ciblé'} :\n<<<\n${target.text}\n>>>` : '',
         `Instruction : ${instruction}`,
       ].filter(Boolean).join('\n\n');
 
@@ -163,9 +176,9 @@ const AI = (() => {
     function finish(label) {
       foot.innerHTML = '';
       if (!answer.trim()) { out.textContent = 'Aucune réponse.'; }
-      const canReplace = !!target.blockId && !!target.text.trim();
+      const canReplace = !!target.blockId && !!target.text.trim() && (!target.table || /^\s*\|.*\|\s*$/m.test(answer));
       foot.append(
-        canReplace ? h('button', { class: 'btn primary', onclick: () => apply('replace') }, target.sel ? 'Remplacer la sélection' : 'Remplacer') : null,
+        canReplace ? h('button', { class: 'btn primary', onclick: () => apply('replace') }, target.sel ? 'Remplacer la sélection' : target.table ? 'Mettre à jour le tableau' : 'Remplacer') : null,
         h('button', { class: 'btn' + (canReplace ? '' : ' primary'), onclick: () => apply('below') }, 'Insérer en dessous'),
         h('button', { class: 'btn', onclick: () => run(lastInstr, label) }, 'Réessayer'),
         h('button', { class: 'btn', onclick: () => navigator.clipboard.writeText(answer).then(() => toast('Copié')) }, 'Copier'),
@@ -181,7 +194,15 @@ const AI = (() => {
       if (!blocks.length) return closePop();
       const i = target.blockId ? p.blocks.findIndex((b) => b.id === target.blockId) : -1;
       const ref = p.blocks[i];
-      if (how === 'replace' && ref && target.sel && blocks.length === 1 && ref.type !== 'code') {
+      let focusId = blocks[blocks.length - 1].id;
+      const ti = blocks.findIndex((x) => x.type === 'table');
+      if (how === 'replace' && ref && ref.type === 'table' && ti >= 0) {
+        // on garde le même bloc (et son identifiant) pour une synchro propre
+        const nt = blocks.splice(ti, 1)[0];
+        Object.assign(ref, { rows: nt.rows, headerRow: nt.headerRow || ref.headerRow });
+        p.blocks.splice(i + 1, 0, ...blocks);
+        focusId = ref.id;
+      } else if (how === 'replace' && ref && target.sel && blocks.length === 1 && ref.type !== 'code') {
         const c = document.querySelector(`.block[data-id="${ref.id}"] .content`);
         if (c) {
           const r = rangeOf(c, target.sel.start, target.sel.end);
@@ -201,7 +222,7 @@ const AI = (() => {
       }
       touch(p);
       closePop();
-      if (p.id === current) { renderBlocks(); focusBlock(blocks[blocks.length - 1].id, 'end'); }
+      if (p.id === current) { renderBlocks(); focusBlock(focusId, 'end'); }
       toast('Contenu de l’IA ajouté');
     }
 

@@ -36,13 +36,13 @@ const Cloud = (() => {
   }
   function blockRow(b, p) {
     const props = {};
-    for (const k of ['checked', 'collapsed', 'icon', 'lang', 'pageId']) if (b[k] !== undefined && b[k] !== null) props[k] = b[k];
+    for (const k of PROP_KEYS) if (b[k] !== undefined && b[k] !== null) props[k] = b[k];
     return { id: b.id, page_id: p.id, workspace_id: ws.id, pos: b.pos, type: b.type, text: b.text || '', indent: b.indent || 0, props };
   }
   function rowToBlock(r) {
     const props = r.props || {};
     const b = { id: r.id, type: r.type, text: r.text || '', indent: r.indent || 0, pos: r.pos };
-    for (const k of ['checked', 'collapsed', 'icon', 'lang', 'pageId']) if (props[k] !== undefined) b[k] = props[k];
+    for (const k of PROP_KEYS) if (props[k] !== undefined) b[k] = props[k];
     return b;
   }
 
@@ -197,9 +197,19 @@ const Cloud = (() => {
       const found = findBlock(r.id);
       const nb = rowToBlock(r);
       if (found) {
-        if ((found.b.id === focusedId || opts.keepDirty) && isDirtyBlock(found.b)) continue;
+        if ((found.b.id === focusedId || opts.keepDirty) && isDirtyBlock(found.b)) {
+          // tableau modifié des deux côtés : on fusionne cellule par cellule
+          const base = found.b.type === 'table' && nb.type === 'table' && JSON.parse(shadow.blocks.get(r.id) || 'null');
+          const merged = base && Table.merge(base.props.rows, found.b.rows, nb.rows);
+          if (!merged) continue;
+          shadow.blocks.set(r.id, JSON.stringify(blockRow(nb, page)));
+          Object.assign(found.b, { rows: merged, headerRow: nb.headerRow, headerCol: nb.headerCol });
+          if (page.id === current) touchedCurrent = true;
+          schedule();
+          continue;
+        }
         const moved = found.b.pos !== nb.pos || found.p !== page;
-        for (const k of ['checked', 'collapsed', 'icon', 'lang', 'pageId']) delete found.b[k];
+        for (const k of PROP_KEYS) delete found.b[k];
         Object.assign(found.b, nb);
         if (moved) { found.p.blocks.splice(found.i, 1); insertSorted(page.blocks, found.b); }
       } else insertSorted(page.blocks, nb);
@@ -233,6 +243,7 @@ const Cloud = (() => {
   }
 
   function rerenderKeepCaret() {
+    const tf = Table.saveFocus();
     const ae = document.activeElement;
     const row = ae && ae.closest && ae.closest('.block');
     let id = null;
@@ -246,7 +257,8 @@ const Cloud = (() => {
     const top = scroller.scrollTop;
     renderBlocks();
     scroller.scrollTop = top;
-    if (id) focusBlock(id, off == null || off < 0 ? 'end' : off);
+    if (tf) Table.restoreFocus(tf);
+    else if (id) focusBlock(id, off == null || off < 0 ? 'end' : off);
   }
 
   /* ---------- Chargement ---------- */
