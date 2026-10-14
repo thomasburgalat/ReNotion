@@ -14,6 +14,8 @@ Un espace de notes par blocs inspiré de Notion, écrit de zéro (aucun code de 
 - Recherche plein texte (Ctrl+K), icônes, couvertures, corbeille, thème clair / sombre, mobile
 - **Collaboration en direct** : les modifications apparaissent chez les autres en moins d'une seconde ; avatars des personnes connectées et indicateur « X édite ce bloc »
 - **IA** (Ctrl+J, `/ia` ou bouton ✨) : améliorer, corriger, raccourcir, développer, traduire, changer le ton, résumer la page, continuer à écrire, extraire les tâches, brainstormer, créer un tableau, ou demande libre. Sur un tableau : remplir les cellules vides, ajouter des lignes ou une colonne, corriger, traduire, résumer. Le résultat peut être inséré ou remplacer le texte.
+- **Annuler / Rétablir** (Ctrl+Z, Ctrl+Maj+Z ou ↶ ↷) : propre à chaque personne, n'annule que ses propres modifications même quand d'autres éditent la même page
+- **Historique des versions** (menu ⋯ → Historique) : versions automatiques pendant l'édition (au plus toutes les 5 min, plus l'état d'avant tes modifications), aperçu, auteur, restauration annulable ; 100 versions gardées par page
 - Export / import JSON, import de fichiers Markdown, export d'une page en Markdown
 
 ## Architecture

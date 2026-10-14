@@ -179,6 +179,8 @@ const Cloud = (() => {
     const titleFocused = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('page-title');
     let touchedCurrent = false;
     let structure = false;
+    History.commitAll(); // nos modifications en cours restent annulables séparément
+    const touchedPages = new Set();
 
     for (const r of up.pages || []) {
       let p = S.pages[r.id];
@@ -188,12 +190,14 @@ const Cloud = (() => {
       if (!(titleFocused && p.id === current)) p.title = r.title || '';
       Object.assign(p, { parentId: r.parent_id || null, icon: r.icon || '', cover: r.cover || '', pos: r.pos, trashed: !!r.trashed, trashedAt: r.trashed_at || null, kind: r.kind || 'page', updatedAt: Date.now() });
       shadow.pages.set(p.id, JSON.stringify(pageRow(p)));
+      touchedPages.add(p.id);
       if (p.id === current) touchedCurrent = true;
     }
 
     for (const r of up.blocks || []) {
       const page = S.pages[r.page_id];
       if (!page) continue;
+      touchedPages.add(page.id);
       const found = findBlock(r.id);
       const nb = rowToBlock(r);
       if (found) {
@@ -221,6 +225,7 @@ const Cloud = (() => {
       const found = findBlock(id);
       shadow.blocks.delete(id);
       if (!found) continue;
+      touchedPages.add(found.p.id);
       found.p.blocks.splice(found.i, 1);
       if (found.p.id === current) touchedCurrent = true;
     }
@@ -230,6 +235,8 @@ const Cloud = (() => {
       if (id === current) touchedCurrent = true;
     }
 
+    touchedPages.forEach((pid) => History.rebase(pid));
+    (del.pages || []).forEach((pid) => History.rebase(pid));
     if (structure) renderSidebar();
     const p = S.pages[current];
     if (!p || isDeleted(p)) { if (structure || touchedCurrent) render(); return; }
@@ -278,6 +285,7 @@ const Cloud = (() => {
     status('Chargement…');
     const [pages, blocks] = await Promise.all([fetchAll('pages'), fetchAll('blocks')]);
     S = { version: 1, pages: {} };
+    History.reset();
     shadow.pages.clear();
     shadow.blocks.clear();
     for (const r of pages) {
@@ -599,10 +607,38 @@ const Cloud = (() => {
   });
   window.addEventListener('online', () => { if (ws) resync(); });
 
+  /* ---------- Versions ---------- */
+
+  async function saveVersion(pageId, data, reason) {
+    if (!ws) return;
+    await flush(); // la page doit exister en base avant sa version
+    const { error } = await sb.from('page_versions').insert({ page_id: pageId, workspace_id: ws.id, created_by: user.id, reason, data });
+    if (error) throw error;
+  }
+  async function listVersions(pageId) {
+    const { data, error } = await sb.from('page_versions').select('id, created_at, created_by, reason').eq('page_id', pageId).order('created_at', { ascending: false }).limit(100);
+    if (error) throw error;
+    return data;
+  }
+  async function getVersion(id) {
+    const { data, error } = await sb.from('page_versions').select('data').eq('id', id).single();
+    if (error) throw error;
+    return data.data;
+  }
+  let namesCache = null;
+  async function memberNames() {
+    if (namesCache && namesCache.ws === ws.id && Date.now() - namesCache.at < 60000) return namesCache.map;
+    const { data } = await sb.from('members').select('user_id, display_name, color').eq('workspace_id', ws.id);
+    const map = {};
+    (data || []).forEach((m) => { map[m.user_id] = { name: m.display_name, color: m.color }; });
+    namesCache = { ws: ws.id, at: Date.now(), map };
+    return map;
+  }
+
   async function token() {
     const { data } = await sb.auth.getSession();
     return data.session ? data.session.access_token : null;
   }
 
-  return { boot, schedule, flush, here, decorate, settings, token, fnUrl, get config() { return CFG; } };
+  return { boot, schedule, flush, here, decorate, settings, token, fnUrl, saveVersion, listVersions, getVersion, memberNames, get config() { return CFG; } };
 })();

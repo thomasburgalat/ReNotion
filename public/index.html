@@ -39,6 +39,8 @@
           <span id="saved" class="muted"></span>
           <div id="people"></div>
           <button class="icon-btn" id="btn-ai" title="Demander à l’IA (Ctrl+J)">✨</button>
+          <button class="icon-btn" id="btn-undo" title="Annuler (Ctrl+Z)" disabled>↶</button>
+          <button class="icon-btn" id="btn-redo" title="Rétablir (Ctrl+Maj+Z)" disabled>↷</button>
           <button class="icon-btn" id="btn-fav" title="Favori">☆</button>
           <button class="icon-btn" id="btn-more" title="Plus">⋯</button>
         </div>
@@ -54,6 +56,7 @@
   <script src="vendor/supabase-2.116.0.js"></script>
   <script src="cloud.js"></script>
   <script src="table.js"></script>
+  <script src="history.js"></script>
   <script src="ai.js"></script>
   <script src="app.js"></script>
 </body>

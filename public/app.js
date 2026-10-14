@@ -147,7 +147,7 @@ function save() {
   }, 300);
 }
 function saveUI() { try { localStorage.setItem(LS_UI, JSON.stringify(UI)); } catch (e) { /* ignore */ } }
-function touch(page) { page.updatedAt = Date.now(); save(); }
+function touch(page) { page.updatedAt = Date.now(); save(); History.track(page); History.buttons(); }
 
 /* ---------- Arbre des pages ---------- */
 
@@ -330,7 +330,9 @@ function go(id, focusTitle) {
   render(focusTitle);
 }
 
+let renderedPage = null;
 function render(focusTitle) {
+  if (renderedPage && renderedPage !== current) { History.commit(renderedPage); Versions.leave(renderedPage); }
   const p = S.pages[current];
   closePop();
   if (!p || isDeleted(p)) {
@@ -338,6 +340,9 @@ function render(focusTitle) {
     if (first) { current = first.id; history.replaceState(null, '', '#/' + first.id); return render(); }
     current = null;
   }
+  renderedPage = current;
+  if (S.pages[current]) History.ensure(S.pages[current]);
+  History.buttons();
   renderSidebar();
   renderTop();
   renderPage();
@@ -747,6 +752,12 @@ function bindBlocks(box) {
   box.addEventListener('focusin', (e) => {
     const cell = e.target.closest('.cell');
     if (cell) lastCell = { id: cell.closest('.block').dataset.id, r: +cell.dataset.r, c: +cell.dataset.c };
+  });
+  let focusedBlock = null;
+  box.addEventListener('focusin', (e) => {
+    const row = e.target.closest('.block');
+    // changer de bloc clôt le groupe de frappe en cours pour Ctrl+Z
+    if (row && row.dataset.id !== focusedBlock) { if (focusedBlock) History.commit(current); focusedBlock = row.dataset.id; }
   });
   box.addEventListener('focusin', (e) => { const row = e.target.closest('.block'); if (CLOUD && row) Cloud.here(row.dataset.id); });
   box.addEventListener('mousedown', (e) => { if (e.target.closest('[data-act]') && e.target.closest('.prefix')) e.preventDefault(); });
@@ -1272,6 +1283,7 @@ function pageMenu(p, anchor) {
     { icon: '✏️', label: 'Renommer', action: () => { const t = prompt('Nouveau nom', p.title); if (t != null) { p.title = t.trim(); touch(p); render(); } } },
     { icon: '⧉', label: 'Dupliquer', action: () => go(duplicatePage(p).id) },
     { icon: '↗', label: 'Déplacer vers…', action: () => movePicker(p) },
+    isFolder(p) ? null : { icon: '🕘', label: 'Historique des versions', action: () => Versions.open(p) },
     isFolder(p) ? null : { icon: '⬇', label: 'Exporter en Markdown', action: () => download(`${safeName(titleOf(p))}.md`, toMarkdown(p), 'text/markdown') },
     '-',
     { icon: '🗑', label: 'Mettre à la corbeille', danger: true, action: () => trashPage(p) },
@@ -1608,10 +1620,16 @@ $('#scrim').addEventListener('click', () => setSidebar(false));
 $('#btn-fav').addEventListener('click', () => { const p = S.pages[current]; if (!p) return; toggleFav(p); renderSidebar(); renderTop(); });
 $('#btn-more').addEventListener('click', (e) => { const p = S.pages[current]; if (p) pageMenu(p, e.currentTarget); });
 $('#btn-ai').addEventListener('click', () => AI.open(null));
+$('#btn-undo').addEventListener('click', () => History.undo(current));
+$('#btn-redo').addEventListener('click', () => History.redo(current));
 
 document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key.toLowerCase() === 'k' || e.key.toLowerCase() === 'p') && getSelection().isCollapsed) { e.preventDefault(); openSearch(); }
+  else if (mod && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y') && !e.target.closest('.modal, #ai, input, textarea, select')) {
+    e.preventDefault();
+    if (e.key.toLowerCase() === 'y' || e.shiftKey) History.redo(current); else History.undo(current);
+  }
   else if (mod && e.key.toLowerCase() === 'j') { e.preventDefault(); const row = document.activeElement && document.activeElement.closest && document.activeElement.closest('.block'); AI.open(row ? row.dataset.id : null); }
   else if (mod && e.key === '\\') { e.preventDefault(); setSidebar(document.body.classList.contains('sb-hidden')); }
   else if (e.key === 'Escape' && $('#layer').children.length) closePop();
