@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReNotion</title>
+  <meta name="description" content="Espace de notes personnel par blocs, inspiré de Notion.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📓</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sb-head">
+        <div class="workspace">📓 <span>ReNotion</span></div>
+        <button class="icon-btn" id="sb-close" title="Masquer la barre latérale">«</button>
+      </div>
+      <button class="sb-action" id="btn-search"><span class="i">🔍</span>Rechercher <kbd>Ctrl K</kbd></button>
+      <button class="sb-action" id="btn-new"><span class="i">＋</span>Nouvelle page</button>
+      <div class="sb-section" id="sec-fav">
+        <div class="sb-label">Favoris</div>
+        <div id="tree-fav"></div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-label">Pages <button class="icon-btn small" id="btn-new2" title="Nouvelle page">＋</button></div>
+        <div id="tree"></div>
+      </div>
+      <div class="sb-foot">
+        <button class="sb-action" id="btn-trash"><span class="i">🗑</span>Corbeille</button>
+        <button class="sb-action" id="btn-settings"><span class="i">⚙</span>Paramètres</button>
+      </div>
+    </aside>
+    <div id="scrim"></div>
+    <main id="main">
+      <header id="topbar">
+        <button class="icon-btn" id="sb-open" title="Afficher la barre latérale">☰</button>
+        <nav id="crumbs"></nav>
+        <div class="top-actions">
+          <span id="saved" class="muted"></span>
+          <button class="icon-btn" id="btn-fav" title="Favori">☆</button>
+          <button class="icon-btn" id="btn-more" title="Plus">⋯</button>
+        </div>
+      </header>
+      <div id="scroller">
+        <div id="page"></div>
+      </div>
+    </main>
+  </div>
+  <div id="layer"></div>
+  <input type="file" id="file-import" accept="application/json" hidden>
+  <script src="app.js"></script>
+</body>
+</html>
