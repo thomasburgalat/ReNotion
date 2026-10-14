@@ -75,6 +75,7 @@ const AI = (() => {
 
   function open(blockId) {
     if (!CLOUD) { toast('L’IA est disponible dans la version en ligne de ReNotion'); return; }
+    if (isFolder(S.pages[current])) { toast('Ouvre une page pour utiliser l’IA'); return; }
     const target = captureTarget(blockId);
     if (!target) return;
     closePop();

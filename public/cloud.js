@@ -31,7 +31,7 @@ const Cloud = (() => {
   function pageRow(p) {
     return {
       id: p.id, workspace_id: ws.id, parent_id: p.parentId || null, title: p.title || '', icon: p.icon || '',
-      cover: p.cover || '', pos: Number(p.pos) || 0, trashed: !!p.trashed, trashed_at: p.trashedAt || null,
+      cover: p.cover || '', pos: Number(p.pos) || 0, trashed: !!p.trashed, trashed_at: p.trashedAt || null, kind: p.kind || 'page',
     };
   }
   function blockRow(b, p) {
@@ -184,9 +184,9 @@ const Cloud = (() => {
       let p = S.pages[r.id];
       if (p && opts.keepDirty && shadow.pages.get(p.id) !== JSON.stringify(pageRow(p))) continue;
       if (!p) { p = S.pages[r.id] = { id: r.id, blocks: [], createdAt: Date.now() }; structure = true; }
-      if (p.parentId !== (r.parent_id || null) || p.trashed !== !!r.trashed || p.pos !== r.pos || p.title !== r.title || p.icon !== r.icon) structure = true;
+      if (p.parentId !== (r.parent_id || null) || p.trashed !== !!r.trashed || p.pos !== r.pos || p.title !== r.title || p.icon !== r.icon || (p.kind || 'page') !== (r.kind || 'page')) structure = true;
       if (!(titleFocused && p.id === current)) p.title = r.title || '';
-      Object.assign(p, { parentId: r.parent_id || null, icon: r.icon || '', cover: r.cover || '', pos: r.pos, trashed: !!r.trashed, trashedAt: r.trashed_at || null, updatedAt: Date.now() });
+      Object.assign(p, { parentId: r.parent_id || null, icon: r.icon || '', cover: r.cover || '', pos: r.pos, trashed: !!r.trashed, trashedAt: r.trashed_at || null, kind: r.kind || 'page', updatedAt: Date.now() });
       shadow.pages.set(p.id, JSON.stringify(pageRow(p)));
       if (p.id === current) touchedCurrent = true;
     }
@@ -234,8 +234,9 @@ const Cloud = (() => {
     const p = S.pages[current];
     if (!p || isDeleted(p)) { if (structure || touchedCurrent) render(); return; }
     if (touchedCurrent) {
-      if (!p.blocks.length) p.blocks.push({ id: uid(), type: 'p', text: '', indent: 0 });
+      if (!p.blocks.length && !isFolder(p)) p.blocks.push({ id: uid(), type: 'p', text: '', indent: 0 });
       renderTop();
+      if (isFolder(p)) { if (!titleFocused) renderPage(); return; }
       const t = $('.page-title');
       if (t && !titleFocused && t.textContent !== p.title) t.textContent = p.title;
       rerenderKeepCaret();
@@ -282,14 +283,14 @@ const Cloud = (() => {
     for (const r of pages) {
       S.pages[r.id] = {
         id: r.id, parentId: r.parent_id, title: r.title, icon: r.icon, cover: r.cover, pos: r.pos, trashed: r.trashed,
-        trashedAt: r.trashed_at, createdAt: Date.parse(r.created_at), updatedAt: Date.parse(r.updated_at), blocks: [],
+        trashedAt: r.trashed_at, kind: r.kind || 'page', createdAt: Date.parse(r.created_at), updatedAt: Date.parse(r.updated_at), blocks: [],
       };
     }
     for (const r of blocks) if (S.pages[r.page_id]) S.pages[r.page_id].blocks.push(rowToBlock(r));
     for (const p of Object.values(S.pages)) {
       shadow.pages.set(p.id, JSON.stringify(pageRow(p)));
       p.blocks.forEach((b) => shadow.blocks.set(b.id, JSON.stringify(blockRow(b, p))));
-      if (!p.blocks.length) p.blocks.push({ id: uid(), type: 'p', text: '', indent: 0 });
+      if (!p.blocks.length && !isFolder(p)) p.blocks.push({ id: uid(), type: 'p', text: '', indent: 0 });
     }
     status('Synchronisé');
   }

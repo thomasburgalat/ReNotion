@@ -63,14 +63,14 @@ let UI = { expanded: {}, sbHidden: false, theme: 'auto', wide: false, favs: {} }
 const CLOUD = !!(window.RN_CONFIG && window.RN_CONFIG.supabaseUrl);
 let current = null; // id de la page affichée
 
-function newPage(parentId = null, title = '') {
+function newPage(parentId = null, title = '', kind = 'page') {
   const id = uid();
   const siblings = childrenOf(parentId);
   const p = {
-    id, parentId, title, icon: '', cover: '', trashed: false,
+    id, parentId, title, icon: '', cover: '', trashed: false, kind,
     pos: siblings.length ? siblings[siblings.length - 1].pos + 1 : 0,
     createdAt: Date.now(), updatedAt: Date.now(),
-    blocks: [{ id: uid(), type: 'p', text: '', indent: 0 }],
+    blocks: kind === 'folder' ? [] : [{ id: uid(), type: 'p', text: '', indent: 0 }],
   };
   S.pages[id] = p;
   if (parentId) UI.expanded[parentId] = true;
@@ -172,7 +172,13 @@ function descendants(id) {
 const isFav = (p) => !!UI.favs[p.id];
 function toggleFav(p) { if (UI.favs[p.id]) delete UI.favs[p.id]; else UI.favs[p.id] = true; saveUI(); }
 const titleOf = (p) => (p && p.title.trim()) || 'Sans titre';
-const iconOf = (p) => (p && p.icon) || '📄';
+const isFolder = (p) => !!p && p.kind === 'folder';
+const iconOf = (p) => (p && p.icon) || (isFolder(p) ? (UI.expanded[p.id] ? '📂' : '📁') : '📄');
+function newFolder(parentId = null) {
+  const f = newPage(parentId, '', 'folder');
+  save();
+  return f;
+}
 
 /* ---------- Nettoyage HTML (formatage inline seulement) ---------- */
 
@@ -283,7 +289,7 @@ function renderSidebar() {
       container.append(treeRow(p, depth, kids.length > 0, open));
       if (open) {
         if (kids.length) addRows(kids, depth + 1, container);
-        else container.append(h('div', { class: 'tree-empty', style: { paddingLeft: 30 + (depth + 1) * 14 + 'px' } }, 'Aucune page à l’intérieur'));
+        else container.append(h('div', { class: 'tree-empty', style: { paddingLeft: 30 + (depth + 1) * 14 + 'px' } }, isFolder(p) ? 'Dossier vide' : 'Aucune page à l’intérieur'));
       }
     });
   };
@@ -297,7 +303,7 @@ function renderSidebar() {
 }
 
 function treeRow(p, depth, hasKids, open, flat) {
-  const row = h('div', { class: 'tree-row' + (p.id === current ? ' active' : ''), style: { paddingLeft: 4 + depth * 14 + 'px' }, title: titleOf(p) },
+  const row = h('div', { class: 'tree-row' + (p.id === current ? ' active' : '') + (isFolder(p) ? ' folder' : ''), style: { paddingLeft: 4 + depth * 14 + 'px' }, title: titleOf(p), 'data-id': p.id, draggable: flat ? null : 'true' },
     flat ? h('span', { class: 'ico', style: { width: '20px' } }) : h('button', {
       class: 'arrow' + (open ? ' open' : ''), title: 'Déplier',
       onclick: (e) => { e.stopPropagation(); UI.expanded[p.id] = !open; saveUI(); renderSidebar(); },
@@ -306,9 +312,13 @@ function treeRow(p, depth, hasKids, open, flat) {
     h('span', { class: 'name' }, titleOf(p)),
     h('span', { class: 'acts' },
       h('button', { class: 'icon-btn small', title: 'Plus', onclick: (e) => { e.stopPropagation(); pageMenu(p, e.currentTarget); } }, '⋯'),
-      h('button', { class: 'icon-btn small', title: 'Ajouter une sous-page', onclick: (e) => { e.stopPropagation(); go(newPage(p.id).id, true); } }, '＋')),
+      h('button', { class: 'icon-btn small', title: isFolder(p) ? 'Ajouter une page dans ce dossier' : 'Ajouter une sous-page', onclick: (e) => { e.stopPropagation(); go(newPage(p.id).id, true); } }, '＋')),
   );
-  row.addEventListener('click', () => { go(p.id); if (innerWidth <= 760) setSidebar(false); });
+  row.addEventListener('click', () => {
+    if (isFolder(p) && !flat && (p.id === current || !UI.expanded[p.id])) { UI.expanded[p.id] = p.id === current ? !UI.expanded[p.id] : true; saveUI(); }
+    go(p.id);
+    if (innerWidth <= 760 && !isFolder(p)) setSidebar(false);
+  });
   return row;
 }
 
@@ -378,7 +388,8 @@ function renderPage() {
     document.querySelectorAll(`.page-link[data-page="${p.id}"] .t`).forEach((t) => { t.textContent = titleOf(p); });
   });
   title.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || (e.key === 'ArrowDown' && onLastLine(title))) {
+    if (isFolder(p) && e.key === 'Enter') { e.preventDefault(); title.blur(); return; }
+    if (!isFolder(p) && (e.key === 'Enter' || (e.key === 'ArrowDown' && onLastLine(title)))) {
       e.preventDefault();
       if (e.key === 'Enter' && caretOffset(title) === 0 && p.title) {
         p.blocks.unshift({ id: uid(), type: 'p', text: '', indent: 0 });
@@ -402,11 +413,115 @@ function renderPage() {
     title);
   root.append(head);
 
+  if (isFolder(p)) { root.append(folderView(p)); return; }
   const wrap = h('div', { class: 'wrap' }, h('div', { class: 'blocks', id: 'blocks' }),
     h('div', { class: 'add-below', onclick: addBelowClick }));
   root.append(wrap);
   bindBlocks($('#blocks'));
   renderBlocks();
+}
+
+function relTime(t) {
+  const d = (Date.now() - (t || 0)) / 1000;
+  if (d < 60) return 'à l’instant';
+  if (d < 3600) return `il y a ${Math.floor(d / 60)} min`;
+  if (d < 86400) return `il y a ${Math.floor(d / 3600)} h`;
+  if (d < 86400 * 30) return `il y a ${Math.floor(d / 86400)} j`;
+  return new Date(t).toLocaleDateString('fr-FR');
+}
+
+function folderView(f) {
+  const kids = childrenOf(f.id);
+  const count = (x) => childrenOf(x.id).length;
+  const snippet = (x) => {
+    const b = x.blocks.find((y) => y.type !== 'page' && y.type !== 'divider' && (y.type === 'table' ? (y.rows || []).some((r) => r.some(Boolean)) : plain(y.text).trim()));
+    return b ? (b.type === 'table' ? Table.plainText(b) : b.type === 'code' ? b.text : plain(b.text)).slice(0, 140) : '';
+  };
+  const grid = h('div', { class: 'cards' }, kids.map((k) => h('a', { class: 'card' + (isFolder(k) ? ' is-folder' : ''), href: '#/' + k.id, 'data-id': k.id, draggable: 'true' },
+    h('div', { class: 'card-ico' }, iconOf(k)),
+    h('div', { class: 'card-title' }, titleOf(k)),
+    h('div', { class: 'card-snip' }, isFolder(k) ? `${count(k)} élément${count(k) > 1 ? 's' : ''}` : snippet(k) || 'Page vide'),
+    h('div', { class: 'card-meta' }, isFolder(k) ? 'Dossier' : 'Modifiée ' + relTime(k.updatedAt)))));
+  bindTreeDnd(grid, '.card');
+  return h('div', { class: 'wrap folder-view' },
+    h('div', { class: 'folder-actions' },
+      h('button', { class: 'btn primary', onclick: () => go(newPage(f.id).id, true) }, '＋ Nouvelle page'),
+      h('button', { class: 'btn', onclick: () => { const nf = newFolder(f.id); go(nf.id, true); } }, '📁 Nouveau dossier'),
+      h('span', { class: 'muted' }, kids.length ? `${kids.length} élément${kids.length > 1 ? 's' : ''} · glisse des pages ici depuis la barre latérale` : '')),
+    kids.length ? grid : h('div', { class: 'folder-empty' }, h('div', { style: { fontSize: '40px' } }, '📂'), 'Ce dossier est vide.', h('br'), 'Crée une page ou glisse-en une ici depuis la barre latérale.'));
+}
+
+/* ---------- Glisser-déposer dans l'arbre (et dans les dossiers) ---------- */
+
+let dragPage = null;
+
+function canDrop(id, targetId) {
+  if (!id || id === targetId) return false;
+  for (let x = S.pages[targetId]; x; x = S.pages[x.parentId]) if (x.id === id) return false;
+  return true;
+}
+
+function movePage(id, targetId, zone) {
+  const p = S.pages[id];
+  const t = targetId && S.pages[targetId];
+  if (!p) return;
+  if (!t || zone === 'inside') {
+    const parent = t ? t.id : null;
+    const sib = childrenOf(parent).filter((x) => x.id !== id);
+    p.parentId = parent;
+    p.pos = sib.length ? sib[sib.length - 1].pos + 1 : 0;
+    if (parent) UI.expanded[parent] = true;
+  } else {
+    const sib = childrenOf(t.parentId).filter((x) => x.id !== id);
+    const i = sib.findIndex((x) => x.id === t.id);
+    const other = zone === 'before' ? sib[i - 1] : sib[i + 1];
+    p.parentId = t.parentId || null;
+    p.pos = other ? (t.pos + other.pos) / 2 : t.pos + (zone === 'before' ? -1 : 1);
+  }
+  saveUI();
+  touch(p);
+  renderSidebar();
+  renderTop();
+  const cur = S.pages[current];
+  if (isFolder(cur)) renderPage();
+}
+
+function bindTreeDnd(box, sel) {
+  const clear = () => document.querySelectorAll('.drop-before, .drop-after, .drop-inside').forEach((x) => x.classList.remove('drop-before', 'drop-after', 'drop-inside'));
+  box.addEventListener('dragstart', (e) => {
+    const row = e.target.closest(sel);
+    if (!row) return;
+    dragPage = row.dataset.id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', titleOf(S.pages[dragPage]));
+  });
+  box.addEventListener('dragover', (e) => {
+    if (!dragPage) return;
+    const row = e.target.closest(sel);
+    clear();
+    if (!row) { if (sel === '.tree-row') { e.preventDefault(); box.classList.add('drop-inside'); } return; }
+    if (!canDrop(dragPage, row.dataset.id)) return;
+    e.preventDefault();
+    const r = row.getBoundingClientRect();
+    const y = sel === '.card' ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height;
+    const t = S.pages[row.dataset.id];
+    // sur un dossier, le centre veut dire « dedans » ; sur une page, seulement le milieu étroit
+    const inner = isFolder(t) ? [0.25, 0.75] : [0.35, 0.65];
+    row.classList.add(y < inner[0] ? 'drop-before' : y > inner[1] ? 'drop-after' : 'drop-inside');
+  });
+  box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) clear(); });
+  box.addEventListener('drop', (e) => {
+    if (!dragPage) return;
+    e.preventDefault();
+    const row = box.querySelector('.drop-before, .drop-after, .drop-inside');
+    const zone = row ? (row.classList.contains('drop-before') ? 'before' : row.classList.contains('drop-after') ? 'after' : 'inside') : null;
+    const id = dragPage;
+    dragPage = null;
+    clear();
+    if (row && row !== box) movePage(id, row.dataset.id, zone);
+    else if (sel === '.tree-row') movePage(id, null, 'inside');
+  });
+  box.addEventListener('dragend', () => { dragPage = null; clear(); });
 }
 
 function addBelowClick() {
@@ -1118,7 +1233,7 @@ function showPop(pop, pos, keep) {
 }
 function menu(anchor, items) {
   const pop = h('div', { class: 'pop' });
-  items.forEach((it) => {
+  items.filter(Boolean).forEach((it) => {
     if (it === '-') pop.append(h('div', { class: 'sep' }));
     else if (it.header) pop.append(h('div', { class: 'hdr' }, it.header));
     else pop.append(h('button', { class: 'item' + (it.danger ? ' danger' : ''), onclick: () => { closePop(); it.action(); } },
@@ -1152,10 +1267,12 @@ function blockMenu(b, anchor) {
 function pageMenu(p, anchor) {
   menu(anchor, [
     { icon: isFav(p) ? '★' : '☆', label: isFav(p) ? 'Retirer des favoris' : 'Ajouter aux favoris', action: () => { toggleFav(p); render(); } },
-    { icon: '＋', label: 'Ajouter une sous-page', action: () => go(newPage(p.id).id, true) },
+    { icon: '＋', label: isFolder(p) ? 'Nouvelle page dans le dossier' : 'Ajouter une sous-page', action: () => go(newPage(p.id).id, true) },
+    { icon: '📁', label: 'Nouveau dossier à l’intérieur', action: () => go(newFolder(p.id).id, true) },
+    { icon: '✏️', label: 'Renommer', action: () => { const t = prompt('Nouveau nom', p.title); if (t != null) { p.title = t.trim(); touch(p); render(); } } },
     { icon: '⧉', label: 'Dupliquer', action: () => go(duplicatePage(p).id) },
     { icon: '↗', label: 'Déplacer vers…', action: () => movePicker(p) },
-    { icon: '⬇', label: 'Exporter en Markdown', action: () => download(`${safeName(titleOf(p))}.md`, toMarkdown(p), 'text/markdown') },
+    isFolder(p) ? null : { icon: '⬇', label: 'Exporter en Markdown', action: () => download(`${safeName(titleOf(p))}.md`, toMarkdown(p), 'text/markdown') },
     '-',
     { icon: '🗑', label: 'Mettre à la corbeille', danger: true, action: () => trashPage(p) },
   ]);
@@ -1480,6 +1597,8 @@ document.body.classList.toggle('sb-hidden', UI.sbHidden || innerWidth <= 760);
 
 $('#btn-new').addEventListener('click', () => { go(newPage(null).id, true); if (innerWidth <= 760) setSidebar(false); });
 $('#btn-new2').addEventListener('click', () => { go(newPage(null).id, true); if (innerWidth <= 760) setSidebar(false); });
+$('#btn-folder').addEventListener('click', () => { go(newFolder(null).id, true); });
+bindTreeDnd($('#tree'), '.tree-row');
 $('#btn-search').addEventListener('click', openSearch);
 $('#btn-trash').addEventListener('click', openTrash);
 $('#btn-settings').addEventListener('click', openSettings);
