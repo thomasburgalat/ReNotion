@@ -1,42 +1,52 @@
 # ReNotion
 
-Un espace de notes personnel par blocs, inspiré de Notion. C'est une app web statique (HTML, CSS et JS, sans dépendances ni étape de build), hébergeable gratuitement sur GitHub Pages.
+Un espace de notes par blocs inspiré de Notion, écrit de zéro (aucun code de Notion). On peut l'utiliser à plusieurs en temps réel, et il intègre un assistant IA (Groq).
 
-> Écrit de zéro : aucun code de Notion n'est utilisé.
+**En ligne :** https://renotion-mu.vercel.app
 
 ## Fonctionnalités
 
-- Pages imbriquées à l'infini, arbre dans la barre latérale, fil d'Ariane, favoris
+- Pages imbriquées, arbre dans la barre latérale, fil d'Ariane, favoris (propres à chaque personne)
 - Éditeur par blocs : texte, titres 1 à 3, listes à puces / numérotées / de tâches, listes dépliantes, citations, encadrés, code, séparateurs, sous-pages
-- Menu `/` pour insérer ou transformer un bloc
-- Raccourcis Markdown : `#`, `##`, `###`, `-`, `1.`, `[]`, `>`, `"`, ` ``` `, `---`
-- Formatage : Ctrl+B / I / U, Ctrl+E (code), Ctrl+Maj+X (barré), Ctrl+K sur une sélection (lien)
-- Tab / Maj+Tab pour indenter, glisser-déposer pour réordonner, Ctrl+D pour dupliquer
+- Menu `/`, raccourcis Markdown (`#`, `-`, `1.`, `[]`, `>`, `"`, ` ``` `, `---`), glisser-déposer, Tab / Maj+Tab
 - Coller du Markdown crée les blocs correspondants
-- Recherche plein texte (Ctrl+K), icônes emoji, couvertures, corbeille avec restauration
-- Thème clair / sombre / système, pleine largeur, interface adaptée au mobile
-- Export / import JSON (sauvegarde), import de fichiers Markdown, export d'une page en Markdown
+- Recherche plein texte (Ctrl+K), icônes, couvertures, corbeille, thème clair / sombre, mobile
+- **Collaboration en direct** : les modifications apparaissent chez les autres en moins d'une seconde ; avatars des personnes connectées et indicateur « X édite ce bloc »
+- **IA** (Ctrl+J, `/ia` ou bouton ✨) : améliorer, corriger, raccourcir, développer, traduire, changer le ton, résumer la page, continuer à écrire, extraire les tâches, brainstormer, ou demande libre. Le résultat peut être inséré ou remplacer le texte.
+- Export / import JSON, import de fichiers Markdown, export d'une page en Markdown
 
-## Données
+## Architecture
 
-Tout est stocké dans le `localStorage` **du navigateur utilisé**. Rien n'est envoyé à un serveur. Conséquences :
-
-- les notes ne se synchronisent pas entre appareils ou navigateurs ;
-- vider les données du site efface les notes.
-
-Pense à faire **Paramètres → Exporter (JSON)** régulièrement.
-
-## Lancer en local
-
-```bash
-python3 -m http.server 8000
-# puis ouvrir http://localhost:8000
+```
+public/              site statique servi par Vercel (aucune étape de build)
+  index.html, styles.css
+  app.js             éditeur et interface
+  cloud.js           comptes, chargement, synchronisation, présence (Supabase)
+  ai.js              panneau IA
+  config.js          URL Supabase + clé « publishable » (publique par conception)
+  vendor/            supabase-js 2.116.0
+supabase/
+  migrations/        schéma : workspaces, members, pages, blocks + RLS
+  functions/signup   inscription par pseudo + code d'invitation (sans e-mail)
+  functions/ai       proxy vers Groq, réservé aux membres, en streaming
 ```
 
-## Mise en ligne (GitHub Pages)
+- Chaque bloc est une ligne en base, avec une position fractionnaire. Deux personnes qui éditent des blocs différents ne se gênent jamais. Sur un même bloc, la dernière frappe envoyée l'emporte.
+- Les modifications sont diffusées immédiatement sur un canal Realtime privé `ws:<id>` (accès réservé aux membres via RLS sur `realtime.messages`), puis enregistrées en base. Après une coupure réseau, l'app se resynchronise.
+- La clé Groq reste côté serveur (secret de la fonction Edge), jamais dans le navigateur.
 
-1. Fusionner ce code dans `main`.
-2. Sur GitHub : **Settings → Pages → Build and deployment → Source : GitHub Actions**.
-3. Le workflow `.github/workflows/pages.yml` publie le site à chaque push sur `main`, à l'adresse `https://<utilisateur>.github.io/ReNotion/`.
+## Inviter quelqu'un
 
-GitHub Pages sur un dépôt privé nécessite un abonnement GitHub payant. Sinon, rends le dépôt public (tes notes, elles, ne sont pas dans le dépôt) ou dépose ces trois fichiers sur Netlify, Vercel ou Cloudflare Pages.
+Paramètres → **Lien d'invitation** → copier et envoyer. La personne choisit un pseudo et un mot de passe, sans e-mail. Le propriétaire de l'espace peut régénérer le lien.
+
+## Configuration de l'IA
+
+Ajouter le secret `GROQ_API_KEY` (clé créée sur https://console.groq.com/keys) dans Supabase → Edge Functions → Secrets. Le secret optionnel `GROQ_MODEL` force un modèle ; sinon la fonction choisit automatiquement un modèle disponible (gpt-oss-120b, llama-3.3-70b…).
+
+## Développement local
+
+```bash
+cd public && python3 -m http.server 8000
+```
+
+Pour un mode 100 % local (sans compte, données dans le navigateur), vider `supabaseUrl` dans `public/config.js`.
