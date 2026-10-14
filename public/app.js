@@ -26,6 +26,7 @@ function h(tag, attrs, ...kids) {
 /* ---------- Types de blocs ---------- */
 
 const TYPES = {
+  ai: { label: 'Demander à l’IA', desc: 'Rédiger, résumer, traduire, brainstormer…', icon: '✨', keys: 'ia ai intelligence artificielle assistant ecrire' },
   p: { label: 'Texte', desc: 'Commencez à écrire du texte simple.', icon: 'Aa', keys: 'texte text paragraphe paragraph' },
   h1: { label: 'Titre 1', desc: 'Grand titre de section.', icon: 'H1', keys: 'titre heading h1' },
   h2: { label: 'Titre 2', desc: 'Titre de section moyen.', icon: 'H2', keys: 'titre heading h2' },
@@ -56,14 +57,15 @@ const COVERS = [
 /* ---------- État & persistance ---------- */
 
 let S;
-let UI = { expanded: {}, sbHidden: false, theme: 'auto', wide: false };
+let UI = { expanded: {}, sbHidden: false, theme: 'auto', wide: false, favs: {} };
+const CLOUD = !!(window.RN_CONFIG && window.RN_CONFIG.supabaseUrl);
 let current = null; // id de la page affichée
 
 function newPage(parentId = null, title = '') {
   const id = uid();
   const siblings = childrenOf(parentId);
   const p = {
-    id, parentId, title, icon: '', cover: '', favorite: false, trashed: false,
+    id, parentId, title, icon: '', cover: '', trashed: false,
     pos: siblings.length ? siblings[siblings.length - 1].pos + 1 : 0,
     createdAt: Date.now(), updatedAt: Date.now(),
     blocks: [{ id: uid(), type: 'p', text: '', indent: 0 }],
@@ -75,6 +77,11 @@ function newPage(parentId = null, title = '') {
 
 function seed() {
   S = { version: 1, pages: {} };
+  seedPages();
+  return S;
+}
+
+function seedPages() {
   const home = newPage(null, 'Bienvenue dans ReNotion');
   home.icon = '👋';
   home.cover = COVERS[1];
@@ -100,7 +107,8 @@ function seed() {
     b('divider', ''),
     b('page', '', { pageId: sub.id }),
   ];
-  return S;
+  if (CLOUD) home.blocks[0].text = 'Votre espace partagé, inspiré de Notion. Les modifications apparaissent <b>en direct</b> chez tous les membres.';
+  return home;
 }
 
 function load() {
@@ -111,12 +119,19 @@ function load() {
       if (d && d.pages) S = d;
     }
   } catch (e) { /* stockage indisponible */ }
-  try { Object.assign(UI, JSON.parse(localStorage.getItem(LS_UI) || '{}')); } catch (e) { /* ignore */ }
+  loadUI();
   if (!S) seed();
+  Object.values(S.pages).forEach((p) => { if (p.favorite) UI.favs[p.id] = true; delete p.favorite; });
 }
 
 let saveTimer;
+function loadUI() {
+  try { Object.assign(UI, JSON.parse(localStorage.getItem(LS_UI) || '{}')); } catch (e) { /* ignore */ }
+  UI.favs = UI.favs || {};
+}
+
 function save() {
+  if (CLOUD) { Cloud.schedule(); return; }
   clearTimeout(saveTimer);
   $('#saved').textContent = 'Enregistrement…';
   saveTimer = setTimeout(() => {
@@ -152,6 +167,8 @@ function descendants(id) {
   walk(id);
   return out;
 }
+const isFav = (p) => !!UI.favs[p.id];
+function toggleFav(p) { if (UI.favs[p.id]) delete UI.favs[p.id]; else UI.favs[p.id] = true; saveUI(); }
 const titleOf = (p) => (p && p.title.trim()) || 'Sans titre';
 const iconOf = (p) => (p && p.icon) || '📄';
 
@@ -270,7 +287,7 @@ function renderSidebar() {
   };
   addRows(roots, 0, tree);
 
-  const favs = Object.values(S.pages).filter((p) => p.favorite && !isDeleted(p));
+  const favs = Object.values(S.pages).filter((p) => isFav(p) && !isDeleted(p));
   $('#sec-fav').hidden = !favs.length;
   const ft = $('#tree-fav');
   ft.innerHTML = '';
@@ -312,6 +329,7 @@ function render(focusTitle) {
   renderSidebar();
   renderTop();
   renderPage();
+  if (CLOUD) Cloud.here(null);
   if (focusTitle) setCaret($('.page-title'), 'end');
 }
 
@@ -325,8 +343,8 @@ function renderTop() {
     cr.append(h('a', { href: '#/' + x.id }, `${iconOf(x)} ${titleOf(x)}`));
   });
   const fav = $('#btn-fav');
-  fav.textContent = p.favorite ? '★' : '☆';
-  fav.classList.toggle('on', p.favorite);
+  fav.textContent = isFav(p) ? '★' : '☆';
+  fav.classList.toggle('on', isFav(p));
   document.title = `${titleOf(p)} · ReNotion`;
 }
 
@@ -432,6 +450,7 @@ function renderBlocks() {
     lastType[ind] = b.type;
     box.append(blockEl(b, num, p.blocks.length === 1));
   });
+  if (CLOUD) Cloud.decorate();
 }
 
 function blockEl(b, num, only) {
@@ -594,6 +613,7 @@ function bindBlocks(box) {
   box.addEventListener('keydown', onKey);
   box.addEventListener('paste', onPaste);
   box.addEventListener('click', onClick);
+  box.addEventListener('focusin', (e) => { const row = e.target.closest('.block'); if (CLOUD && row) Cloud.here(row.dataset.id); });
   box.addEventListener('mousedown', (e) => { if (e.target.closest('[data-act]') && e.target.closest('.prefix')) e.preventDefault(); });
   box.addEventListener('dragstart', (e) => {
     const row = e.target.closest('.block');
@@ -853,7 +873,7 @@ function wrapInline(tag, c, b) {
 
 function parseLine(line) {
   const rules = [
-    [/^###\s+/, 'h3'], [/^##\s+/, 'h2'], [/^#\s+/, 'h1'], [/^\s*[-*+]\s+\[( |x|X)\]\s+/, 'todo'], [/^\s*\[( |x|X)?\]\s+/, 'todo'],
+    [/^#{3,6}\s+/, 'h3'], [/^##\s+/, 'h2'], [/^#\s+/, 'h1'], [/^\s*[-*+]\s+\[( |x|X)\]\s+/, 'todo'], [/^\s*\[( |x|X)?\]\s+/, 'todo'],
     [/^\s*[-*+•]\s+/, 'ul'], [/^\s*\d+[.)]\s+/, 'ol'], [/^>\s+/, 'quote'], [/^(-{3,}|\*{3,})\s*$/, 'divider'],
   ];
   const indent = Math.min(8, Math.floor((line.match(/^\s*/)[0].replace(/\t/g, '  ').length) / 2));
@@ -867,6 +887,23 @@ function parseLine(line) {
   }
   return { id: uid(), type: 'p', text: inlineMd(line.trim()), indent: 0 };
 }
+function mdToBlocks(text) {
+  const out = [];
+  let code = null;
+  for (const line of String(text).replace(/\r\n?/g, '\n').split('\n')) {
+    if (/^\s*```/.test(line)) {
+      if (code) { code = null; continue; }
+      code = { id: uid(), type: 'code', text: '', indent: 0, lang: line.trim().slice(3).trim() };
+      out.push(code);
+      continue;
+    }
+    if (code) { code.text += (code.text ? '\n' : '') + line; continue; }
+    if (!line.trim()) continue;
+    out.push(parseLine(line));
+  }
+  return out;
+}
+
 function inlineMd(s) {
   return esc(s)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -893,7 +930,7 @@ function onPaste(e) {
     return;
   }
   // collage multiligne : un bloc par ligne, avec détection Markdown
-  const rest = htmlAfterCaret(c);
+  const rest = htmlAfterCaret(c).replace(/<br>$/, '');
   if (b.type === 'p' && !c.textContent.length) {
     const first = parseLine(lines[0]);
     Object.assign(b, { type: first.type, text: first.text, indent: first.indent, checked: first.checked });
@@ -901,21 +938,10 @@ function onPaste(e) {
     document.execCommand('insertText', false, lines[0]);
     readContent(b, c);
   }
-  let after = b.id;
-  let code = null;
   let lastId = b.id;
-  for (const line of lines.slice(1)) {
-    if (/^```/.test(line.trim())) {
-      if (code) { code = null; continue; }
-      code = { id: uid(), type: 'code', text: '', indent: 0, lang: line.trim().slice(3) };
-      insertAfter(after, code); after = lastId = code.id; continue;
-    }
-    if (code) { code.text += (code.text ? '\n' : '') + line; continue; }
-    if (!line.trim()) continue;
-    const nb = parseLine(line);
-    insertAfter(after, nb);
-    after = lastId = nb.id;
-  }
+  const added = mdToBlocks(lines.slice(1).join('\n'));
+  pg().blocks.splice(idx(b.id) + 1, 0, ...added);
+  if (added.length) lastId = added[added.length - 1].id;
   const last = blk(lastId);
   let pos = 'end';
   if (rest) {
@@ -1020,6 +1046,7 @@ function pickSlash(type) {
   const off = caretOffset(c);
   rangeOf(c, start, off >= start ? off : start + 1).deleteContents();
   readContent(b, c);
+  if (type === 'ai') { touch(pg()); return AI.open(id); }
   if (!c.textContent.trim() || type === 'divider') {
     if (type === 'divider' && c.textContent.trim()) {
       const nb = insertAfter(id, { id: uid(), type: 'divider', text: '', indent: b.indent || 0 });
@@ -1036,6 +1063,7 @@ function pickSlash(type) {
 
 function closePop() {
   slash = null;
+  if (typeof AI !== 'undefined') AI.stop();
   $('#layer').innerHTML = '';
 }
 function showPop(pop, pos, keep) {
@@ -1070,6 +1098,7 @@ function blockMenu(b, anchor) {
     { icon: '↑', label: 'Monter', right: 'Ctrl+Maj+↑', action: () => shiftBlock(b.id, -1) },
     { icon: '↓', label: 'Descendre', right: 'Ctrl+Maj+↓', action: () => shiftBlock(b.id, 1) },
   ];
+  if (b.type !== 'divider') items.push({ icon: '✨', label: 'Demander à l’IA', right: 'Ctrl+J', action: () => AI.open(b.id) });
   if (b.type === 'code') items.push({ icon: '⌘', label: 'Langage…', action: () => { const l = prompt('Langage', b.lang || ''); if (l != null) { b.lang = l.trim(); touch(pg()); renderBlocks(); } } });
   if (b.type !== 'page' && b.type !== 'divider') {
     items.push('-', { header: 'Transformer en' });
@@ -1080,7 +1109,7 @@ function blockMenu(b, anchor) {
 
 function pageMenu(p, anchor) {
   menu(anchor, [
-    { icon: p.favorite ? '★' : '☆', label: p.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris', action: () => { p.favorite = !p.favorite; touch(p); render(); } },
+    { icon: isFav(p) ? '★' : '☆', label: isFav(p) ? 'Retirer des favoris' : 'Ajouter aux favoris', action: () => { toggleFav(p); render(); } },
     { icon: '＋', label: 'Ajouter une sous-page', action: () => go(newPage(p.id).id, true) },
     { icon: '⧉', label: 'Dupliquer', action: () => go(duplicatePage(p).id) },
     { icon: '↗', label: 'Déplacer vers…', action: () => movePicker(p) },
@@ -1111,7 +1140,7 @@ function duplicatePage(p) {
   const clone = (src, parentId) => {
     const id = uid();
     map[src.id] = id;
-    S.pages[id] = { ...JSON.parse(JSON.stringify(src)), id, parentId, favorite: false, createdAt: Date.now(), updatedAt: Date.now() };
+    S.pages[id] = { ...JSON.parse(JSON.stringify(src)), id, parentId, createdAt: Date.now(), updatedAt: Date.now() };
     childrenOf(src.id).forEach((k) => clone(k, id));
     return S.pages[id];
   };
@@ -1124,7 +1153,6 @@ function duplicatePage(p) {
 }
 function trashPage(p) {
   p.trashed = true;
-  p.favorite = false;
   p.trashedAt = Date.now();
   save();
   toast(`« ${titleOf(p)} » déplacée dans la corbeille`, 'Annuler', () => { p.trashed = false; save(); go(p.id); });
@@ -1247,10 +1275,11 @@ function openSettings() {
     const count = Object.keys(S.pages).length;
     let size = 0;
     try { size = (localStorage.getItem(LS_KEY) || '').length; } catch (e) { /* ignore */ }
+    if (CLOUD) Cloud.settings(body);
     body.append(
       h('p', {}, 'Thème'), seg,
       h('p', {}, h('label', {}, h('input', { type: 'checkbox', checked: UI.wide, onchange: (e) => { UI.wide = e.target.checked; applyTheme(); saveUI(); } }), ' Pleine largeur')),
-      h('p', {}, `Tes données (${count} pages, ${(size / 1024).toFixed(0)} Ko) sont stockées uniquement dans ce navigateur. Exporte régulièrement une sauvegarde.`),
+      h('p', {}, CLOUD ? `${count} pages dans cet espace, synchronisées en ligne. Tu peux aussi en exporter une copie :` : `Tes données (${count} pages, ${(size / 1024).toFixed(0)} Ko) sont stockées uniquement dans ce navigateur. Exporte régulièrement une sauvegarde.`),
       h('button', { class: 'btn primary', onclick: () => download(`renotion-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(S, null, 1), 'application/json') }, 'Exporter (JSON)'),
       h('button', { class: 'btn', onclick: () => $('#file-import').click() }, 'Importer une sauvegarde'),
       h('button', { class: 'btn', onclick: () => importMarkdown() }, 'Importer du Markdown'),
@@ -1265,19 +1294,8 @@ function importMarkdown() {
     for (const f of inp.files) {
       const text = (await f.text()).replace(/\r\n?/g, '\n');
       const p = newPage(null, f.name.replace(/\.(md|markdown|txt)$/i, ''));
-      p.blocks = [];
-      let code = null;
-      for (const line of text.split('\n')) {
-        if (/^```/.test(line.trim())) {
-          if (code) { code = null; continue; }
-          code = { id: uid(), type: 'code', text: '', indent: 0, lang: line.trim().slice(3) };
-          p.blocks.push(code); continue;
-        }
-        if (code) { code.text += (code.text ? '\n' : '') + line; continue; }
-        if (!line.trim()) continue;
-        if (!p.blocks.length && /^#\s+/.test(line)) { p.title = line.replace(/^#\s+/, '').trim(); continue; }
-        p.blocks.push(parseLine(line));
-      }
+      p.blocks = mdToBlocks(text);
+      if (p.blocks[0] && p.blocks[0].type === 'h1') p.title = plain(p.blocks.shift().text).trim();
       if (!p.blocks.length) p.blocks.push({ id: uid(), type: 'p', text: '', indent: 0 });
       lastId = p.id;
     }
@@ -1297,11 +1315,14 @@ $('#file-import').addEventListener('change', async (e) => {
     for (const p of Object.values(d.pages)) {
       if (!p.id || !Array.isArray(p.blocks)) throw new Error('format');
       p.title = String(p.title || '');
-      p.blocks.forEach((b) => { if (!TYPES[b.type]) b.type = 'p'; b.text = String(b.text || ''); });
+      p.blocks.forEach((b) => { if (!TYPES[b.type] || b.type === 'ai') b.type = 'p'; b.text = String(b.text || ''); });
     }
-    const replace = confirm('OK : remplacer toutes les pages actuelles.\nAnnuler : fusionner avec les pages actuelles.');
-    if (replace) S = d;
-    else Object.assign(S.pages, d.pages);
+    const replace = confirm(CLOUD
+      ? 'OK : remplacer TOUTES les pages de l’espace (pour tous les membres).\nAnnuler : ajouter les pages importées à l’espace.'
+      : 'OK : remplacer toutes les pages actuelles.\nAnnuler : fusionner avec les pages actuelles.');
+    const pages = freshIds(d.pages);
+    if (replace) S.pages = pages;
+    else Object.assign(S.pages, pages);
     save();
     current = null;
     render();
@@ -1310,6 +1331,26 @@ $('#file-import').addEventListener('change', async (e) => {
     toast('Fichier invalide : ce n’est pas une sauvegarde ReNotion');
   }
 });
+
+function freshIds(pages) {
+  const map = {};
+  Object.keys(pages).forEach((id) => { map[id] = uid(); });
+  const out = {};
+  Object.values(pages).forEach((p) => {
+    const np = { ...p, id: map[p.id], parentId: p.parentId && map[p.parentId] ? map[p.parentId] : null };
+    if (p.favorite) UI.favs[np.id] = true;
+    delete np.favorite;
+    np.blocks = p.blocks.map((b) => {
+      const nb = { ...b, id: uid() };
+      delete nb.pos;
+      if (b.type === 'page') nb.pageId = map[b.pageId] || b.pageId;
+      return nb;
+    });
+    out[np.id] = np;
+  });
+  saveUI();
+  return out;
+}
 
 /* ---------- Export Markdown ---------- */
 
@@ -1390,7 +1431,7 @@ function setSidebar(show) {
 
 /* ---------- Démarrage ---------- */
 
-load();
+loadUI();
 applyTheme();
 document.body.classList.toggle('sb-hidden', UI.sbHidden || innerWidth <= 760);
 
@@ -1402,12 +1443,14 @@ $('#btn-settings').addEventListener('click', openSettings);
 $('#sb-close').addEventListener('click', () => setSidebar(false));
 $('#sb-open').addEventListener('click', () => setSidebar(document.body.classList.contains('sb-hidden')));
 $('#scrim').addEventListener('click', () => setSidebar(false));
-$('#btn-fav').addEventListener('click', () => { const p = S.pages[current]; if (!p) return; p.favorite = !p.favorite; touch(p); renderSidebar(); renderTop(); });
+$('#btn-fav').addEventListener('click', () => { const p = S.pages[current]; if (!p) return; toggleFav(p); renderSidebar(); renderTop(); });
 $('#btn-more').addEventListener('click', (e) => { const p = S.pages[current]; if (p) pageMenu(p, e.currentTarget); });
+$('#btn-ai').addEventListener('click', () => AI.open(null));
 
 document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && (e.key.toLowerCase() === 'k' || e.key.toLowerCase() === 'p') && getSelection().isCollapsed) { e.preventDefault(); openSearch(); }
+  else if (mod && e.key.toLowerCase() === 'j') { e.preventDefault(); const row = document.activeElement && document.activeElement.closest && document.activeElement.closest('.block'); AI.open(row ? row.dataset.id : null); }
   else if (mod && e.key === '\\') { e.preventDefault(); setSidebar(document.body.classList.contains('sb-hidden')); }
   else if (e.key === 'Escape' && $('#layer').children.length) closePop();
 });
@@ -1420,10 +1463,14 @@ document.addEventListener('mousedown', (e) => {
 });
 document.addEventListener('selectionchange', () => { if (slash && document.activeElement && !document.activeElement.closest(`.block[data-id="${slash.id}"]`)) closeSlash(); });
 window.addEventListener('popstate', () => { current = location.hash.slice(2) || null; render(); });
-window.addEventListener('storage', (e) => { if (e.key === LS_KEY && e.newValue) { try { S = JSON.parse(e.newValue); render(); } catch (err) { /* ignore */ } } });
+window.addEventListener('storage', (e) => { if (!CLOUD && e.key === LS_KEY && e.newValue) { try { S = JSON.parse(e.newValue); render(); } catch (err) { /* ignore */ } } });
 
-current = location.hash.slice(2) || null;
-if (!S.pages[current]) current = (childrenOf(null)[0] || {}).id || null;
-if (current && location.hash !== '#/' + current) history.replaceState(null, '', '#/' + current);
-render();
-save();
+function startApp() {
+  current = location.hash.slice(2) || null;
+  if (!S.pages[current]) current = (childrenOf(null)[0] || {}).id || null;
+  if (current && location.hash !== '#/' + current) history.replaceState(null, '', '#/' + current);
+  render();
+}
+
+if (CLOUD) Cloud.boot();
+else { load(); startApp(); save(); }

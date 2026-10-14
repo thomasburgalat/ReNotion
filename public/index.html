@@ -37,6 +37,8 @@
         <nav id="crumbs"></nav>
         <div class="top-actions">
           <span id="saved" class="muted"></span>
+          <div id="people"></div>
+          <button class="icon-btn" id="btn-ai" title="Demander à l’IA (Ctrl+J)">✨</button>
           <button class="icon-btn" id="btn-fav" title="Favori">☆</button>
           <button class="icon-btn" id="btn-more" title="Plus">⋯</button>
         </div>
@@ -48,6 +50,10 @@
   </div>
   <div id="layer"></div>
   <input type="file" id="file-import" accept="application/json" hidden>
+  <script src="config.js"></script>
+  <script src="vendor/supabase-2.116.0.js"></script>
+  <script src="cloud.js"></script>
+  <script src="ai.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
