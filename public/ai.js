@@ -11,7 +11,7 @@ const AI = (() => {
     'Formate en Markdown simple : titres (#, ##, ###), listes (-), listes numérotées (1.), cases à cocher (- [ ]), citations (>), **gras**, *italique*, `code`, blocs ```.',
     'Tu peux utiliser des tableaux Markdown (| col | col | puis | --- | --- |) quand c’est utile : ils deviennent de vrais tableaux dans la page.',
     'Quand le texte ciblé est un tableau, réponds avec le tableau complet mis à jour en Markdown (toutes les lignes, en-tête compris), sauf si on te demande autre chose.',
-    'Réponds dans la langue du texte fourni, sauf si l’instruction demande une autre langue.',
+    'Réponds dans la langue du texte fourni (celle de la page ou du tableau, y compris pour les noms propres traduisibles), sauf si l’instruction demande une autre langue.',
   ].join(' ');
 
   const TEXT_ACTIONS = [
@@ -26,7 +26,7 @@ const AI = (() => {
     ['💡', 'Expliquer', 'Explique simplement le texte ciblé.'],
   ];
   const TABLE_ACTIONS = [
-    ['🪄', 'Remplir les cellules vides', 'Remplis toutes les cellules vides du tableau avec des valeurs pertinentes et cohérentes avec le reste. Garde les cellules déjà remplies telles quelles.'],
+    ['🪄', 'Remplir les cellules vides', 'Remplis toutes les cellules vides du tableau avec des valeurs pertinentes et cohérentes avec le reste, dans la même langue que le tableau. Garde les cellules déjà remplies telles quelles.'],
     ['➕', 'Ajouter des lignes', 'Ajoute 5 nouvelles lignes pertinentes à la fin du tableau, dans la continuité des lignes existantes.'],
     ['🧱', 'Ajouter une colonne utile', 'Ajoute une colonne pertinente au tableau et remplis-la pour chaque ligne.'],
     ['✅', 'Corriger le tableau', 'Corrige l’orthographe, la grammaire et les incohérences dans le tableau.'],

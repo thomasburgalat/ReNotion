@@ -7,12 +7,13 @@ Un espace de notes par blocs inspiré de Notion, écrit de zéro (aucun code de 
 ## Fonctionnalités
 
 - Pages imbriquées, arbre dans la barre latérale, fil d'Ariane, favoris (propres à chaque personne)
-- Éditeur par blocs : texte, titres 1 à 3, listes à puces / numérotées / de tâches, listes dépliantes, citations, encadrés, code, séparateurs, sous-pages
+- Éditeur par blocs : texte, titres 1 à 3, listes à puces / numérotées / de tâches, listes dépliantes, citations, encadrés, code, séparateurs, sous-pages, **tableaux**
+- Tableaux : Tab / Entrée pour naviguer, ＋ pour ajouter lignes et colonnes, clic droit pour insérer, supprimer, trier ou définir les en-têtes ; coller depuis un tableur ou du Markdown remplit les cellules
 - Menu `/`, raccourcis Markdown (`#`, `-`, `1.`, `[]`, `>`, `"`, ` ``` `, `---`), glisser-déposer, Tab / Maj+Tab
 - Coller du Markdown crée les blocs correspondants
 - Recherche plein texte (Ctrl+K), icônes, couvertures, corbeille, thème clair / sombre, mobile
 - **Collaboration en direct** : les modifications apparaissent chez les autres en moins d'une seconde ; avatars des personnes connectées et indicateur « X édite ce bloc »
-- **IA** (Ctrl+J, `/ia` ou bouton ✨) : améliorer, corriger, raccourcir, développer, traduire, changer le ton, résumer la page, continuer à écrire, extraire les tâches, brainstormer, ou demande libre. Le résultat peut être inséré ou remplacer le texte.
+- **IA** (Ctrl+J, `/ia` ou bouton ✨) : améliorer, corriger, raccourcir, développer, traduire, changer le ton, résumer la page, continuer à écrire, extraire les tâches, brainstormer, créer un tableau, ou demande libre. Sur un tableau : remplir les cellules vides, ajouter des lignes ou une colonne, corriger, traduire, résumer. Le résultat peut être inséré ou remplacer le texte.
 - Export / import JSON, import de fichiers Markdown, export d'une page en Markdown
 
 ## Architecture
@@ -31,6 +32,7 @@ supabase/
   functions/ai       proxy vers Groq, réservé aux membres, en streaming
 ```
 
+- Un tableau est un bloc dont les cellules sont stockées dans `props.rows` ; quand deux personnes modifient des cellules différentes du même tableau, les changements sont fusionnés cellule par cellule.
 - Chaque bloc est une ligne en base, avec une position fractionnaire. Deux personnes qui éditent des blocs différents ne se gênent jamais. Sur un même bloc, la dernière frappe envoyée l'emporte.
 - Les modifications sont diffusées immédiatement sur un canal Realtime privé `ws:<id>` (accès réservé aux membres via RLS sur `realtime.messages`), puis enregistrées en base. Après une coupure réseau, l'app se resynchronise.
 - La clé Groq reste côté serveur (secret de la fonction Edge), jamais dans le navigateur.
