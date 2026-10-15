@@ -11,7 +11,6 @@ const Cloud = (() => {
   let ws = null; // { id, name, invite_code, role, display_name, color }
   let memberships = [];
   let channel = null;
-  let subscribedOnce = false;
   const shadow = { pages: new Map(), blocks: new Map() };
   let timer = null;
   let firstPending = 0;
@@ -314,38 +313,84 @@ const Cloud = (() => {
         pages: [...shadow.pages.keys()].filter((id) => !pIds.has(id)),
         blocks: [...shadow.blocks.keys()].filter((id) => !bIds.has(id)),
       };
-      applyRemote({ up: { pages, blocks }, del }, { keepDirty: true });
+      // on n'applique que ce qui diffère de notre dernier état synchronisé
+      const pChanged = pages.filter((r) => shadow.pages.get(r.id) !== JSON.stringify(pageRow({
+        id: r.id, parentId: r.parent_id, title: r.title, icon: r.icon, cover: r.cover, pos: r.pos, trashed: r.trashed, trashedAt: r.trashed_at, kind: r.kind,
+      })));
+      const bChanged = blocks.filter((r) => shadow.blocks.get(r.id) !== JSON.stringify(blockRow(rowToBlock(r), { id: r.page_id })));
+      if (!pChanged.length && !bChanged.length && !del.pages.length && !del.blocks.length) return;
+      applyRemote({ up: { pages: pChanged, blocks: bChanged }, del }, { keepDirty: true });
     } catch (err) { console.error('resync', err); }
   }
 
   /* ---------- Temps réel & présence ---------- */
 
+  let live = false; // canal temps réel effectivement rejoint
+  let everLive = false;
+  let reconnectTimer = null;
+  let reconnectDelay = 2000;
+
   async function connect() {
-    if (channel) await sb.removeChannel(channel);
-    subscribedOnce = false;
-    await sb.realtime.setAuth();
-    channel = sb.channel('ws:' + ws.id, { config: { private: true, broadcast: { self: false }, presence: { key: CLIENT } } });
-    channel
+    clearTimeout(reconnectTimer);
+    if (channel) { const old = channel; channel = null; try { await sb.removeChannel(old); } catch (e) { /* ignore */ } }
+    live = false;
+    try { await sb.realtime.setAuth(); } catch (e) { /* le jeton sera rafraîchi */ }
+    const ch = sb.channel('ws:' + ws.id, { config: { private: true, broadcast: { self: false }, presence: { key: CLIENT } } });
+    channel = ch;
+    ch
       .on('broadcast', { event: 'ops' }, ({ payload }) => { if (payload && payload.from !== CLIENT) applyRemote(payload); })
       .on('broadcast', { event: 'reload' }, ({ payload }) => { if (payload && payload.from !== CLIENT) resync(); })
       .on('presence', { event: 'sync' }, renderPresence)
       .subscribe((st) => {
+        if (ch !== channel) return; // ancien canal
         if (st === 'SUBSCRIBED') {
-          track();
-          if (subscribedOnce) resync();
-          subscribedOnce = true;
-        } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') status('Temps réel indisponible…');
+          live = true;
+          reconnectDelay = 2000;
+          lastSent = '';
+          track(true);
+          if (everLive) resync(); // on rattrape ce qui a été manqué pendant la coupure
+          everLive = true;
+          status('Synchronisé');
+        } else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') {
+          live = false;
+          status('Hors direct · reconnexion…');
+          scheduleReconnect();
+        }
       });
   }
 
-  let trackTimer = null;
-  function track() {
-    if (!channel) return;
-    clearTimeout(trackTimer);
-    trackTimer = setTimeout(() => {
-      channel.track({ uid: user.id, name: ws.display_name, color: ws.color, page: me.page, block: me.block });
-    }, 150);
+  function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => { if (ws) connect(); }, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
   }
+
+  // Présence : au plus une mise à jour toutes les 1,5 s (Supabase coupe le canal au-delà de sa limite)
+  let trackTimer = null;
+  let lastTrackAt = 0;
+  let lastSent = '';
+  function track(force) {
+    if (!channel || !live) return;
+    clearTimeout(trackTimer);
+    const delay = force ? 0 : Math.max(150, 1500 - (Date.now() - lastTrackAt));
+    trackTimer = setTimeout(() => {
+      if (!channel || !live) return;
+      const state = { uid: user.id, name: ws.display_name, color: ws.color, page: me.page, block: me.block };
+      const key = JSON.stringify(state);
+      if (key === lastSent) return;
+      lastSent = key;
+      lastTrackAt = Date.now();
+      Promise.resolve(channel.track(state)).catch(() => {});
+    }, delay);
+  }
+
+  // Filet de sécurité : si le direct est coupé, on relit la base régulièrement
+  setInterval(() => { if (ws && !live && !document.hidden) resync(); }, 15000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !ws) return;
+    resync();
+    if (!live) connect();
+  });
 
   function here(blockId) {
     const changed = me.page !== current || me.block !== blockId;
@@ -510,8 +555,10 @@ const Cloud = (() => {
 
   async function logout() {
     try { await flush(); } catch (e) { /* ignore */ }
-    if (channel) await sb.removeChannel(channel);
+    const old = channel;
     channel = null;
+    clearTimeout(reconnectTimer);
+    if (old) await sb.removeChannel(old);
     ws = null;
     await sb.auth.signOut();
     location.reload();
