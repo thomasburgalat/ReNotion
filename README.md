@@ -16,6 +16,7 @@ Un espace de notes par blocs inspiré de Notion, écrit de zéro (aucun code de 
 - **IA** (Ctrl+J, `/ia` ou bouton ✨) : améliorer, corriger, raccourcir, développer, traduire, changer le ton, résumer la page, continuer à écrire, extraire les tâches, brainstormer, créer un tableau, ou demande libre. Sur un tableau : remplir les cellules vides, ajouter des lignes ou une colonne, corriger, traduire, résumer. Le résultat peut être inséré ou remplacer le texte.
 - **Annuler / Rétablir** (Ctrl+Z, Ctrl+Maj+Z ou ↶ ↷) : propre à chaque personne, n'annule que ses propres modifications même quand d'autres éditent la même page
 - **Historique des versions** (menu ⋯ → Historique) : versions automatiques pendant l'édition (au plus toutes les 5 min, plus l'état d'avant tes modifications), aperçu, auteur, restauration annulable ; 100 versions gardées par page
+- **Serveur MCP** : connecte Claude (claude.ai, Desktop, Code) ou un autre agent à tes espaces via Paramètres → Connecter un assistant ; outils : lister, chercher, lire, créer des pages et dossiers, ajouter ou remplacer du contenu, renommer, déplacer, mettre à la corbeille
 - Export / import JSON, import de fichiers Markdown, export d'une page en Markdown
 
 ## Architecture
@@ -32,11 +33,13 @@ supabase/
   migrations/        schéma : workspaces, members, pages, blocks + RLS
   functions/signup   inscription par pseudo + code d'invitation (sans e-mail)
   functions/ai       proxy vers Groq, réservé aux membres, en streaming
+  functions/mcp      serveur MCP (HTTP streamable), authentifié par jeton personnel
 ```
 
 - Un tableau est un bloc dont les cellules sont stockées dans `props.rows` ; quand deux personnes modifient des cellules différentes du même tableau, les changements sont fusionnés cellule par cellule.
 - Chaque bloc est une ligne en base, avec une position fractionnaire. Deux personnes qui éditent des blocs différents ne se gênent jamais. Sur un même bloc, la dernière frappe envoyée l'emporte.
 - Les modifications sont diffusées immédiatement sur un canal Realtime privé `ws:<id>` (accès réservé aux membres via RLS sur `realtime.messages`), puis enregistrées en base. Après une coupure réseau, l'app se resynchronise.
+- Le serveur MCP authentifie chaque requête par un jeton personnel `rn_…` (seule son empreinte SHA-256 est stockée), n'accède qu'aux espaces de son propriétaire, sauvegarde une version avant chaque modification et diffuse ses changements sur le canal temps réel de l'espace.
 - La clé Groq reste côté serveur (secret de la fonction Edge), jamais dans le navigateur.
 
 ## Inviter quelqu'un

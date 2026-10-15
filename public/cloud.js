@@ -578,7 +578,59 @@ const Cloud = (() => {
           openWorkspace(memberships.find((m) => m.id === data));
         } }, 'Rejoindre un espace'),
         h('button', { class: 'btn danger', onclick: logout }, 'Se déconnecter')),
+      h('div', { class: 'sep-line' }),
+      mcpSection(),
       h('div', { class: 'sep-line' }));
+  }
+
+  /* ---------- Assistants (MCP) ---------- */
+
+  const mcpUrl = (tok) => `${CFG.supabaseUrl}/functions/v1/mcp/${tok}`;
+
+  function mcpSection() {
+    const box = h('div', { class: 'mcp' });
+    const list = h('div', { class: 'mcp-list' });
+    const draw = async () => {
+      list.innerHTML = '';
+      const { data, error } = await sb.from('mcp_tokens').select('id, name, prefix, created_at, last_used_at').order('created_at');
+      if (error) { list.append(h('span', { class: 'muted' }, error.message)); return; }
+      if (!data.length) list.append(h('p', { class: 'muted' }, 'Aucun assistant connecté.'));
+      data.forEach((t) => list.append(h('div', { class: 'mcp-row' },
+        h('span', {}, '🤖 ', h('b', {}, t.name), h('span', { class: 'muted' }, ` · ${t.prefix}… · ${t.last_used_at ? 'utilisé ' + relTime(Date.parse(t.last_used_at)) : 'jamais utilisé'}`)),
+        h('button', { class: 'btn danger', onclick: async () => {
+          if (!confirm(`Révoquer « ${t.name} » ? L’assistant n’aura plus accès à ReNotion.`)) return;
+          const { error: e } = await sb.from('mcp_tokens').delete().eq('id', t.id);
+          if (e) return toast(e.message);
+          draw();
+        } }, 'Révoquer'))));
+    };
+    box.append(
+      h('p', {}, h('b', {}, 'Connecter un assistant (MCP)'), ' — donne à Claude ou à un autre agent l’accès à tes espaces : lire, chercher, créer et modifier des pages. Tes potes voient ses modifications en direct.'),
+      list,
+      h('button', { class: 'btn primary', onclick: async () => {
+        const name = prompt('Nom de cet assistant (ex. « Claude », « Claude Code »)', 'Claude');
+        if (name == null) return;
+        const { data: tok, error } = await sb.rpc('create_mcp_token', { token_name: name });
+        if (error) return toast(error.message);
+        showToken(tok);
+      } }, '＋ Connecter un assistant'));
+    draw();
+    return box;
+  }
+
+  function showToken(tok) {
+    const url = mcpUrl(tok);
+    const copy = (txt) => navigator.clipboard.writeText(txt).then(() => toast('Copié'), () => toast('Copie impossible'));
+    const field = (txt) => h('div', { class: 'invite' }, h('input', { type: 'text', class: 'field', readonly: true, value: txt, onfocus: (e) => e.target.select() }), h('button', { class: 'btn', onclick: () => copy(txt) }, 'Copier'));
+    const cli = `claude mcp add --transport http renotion ${url}`;
+    modal('Assistant connecté 🎉', (body) => body.append(
+      h('p', {}, 'Voici l’adresse de ton serveur MCP. ', h('b', {}, 'Elle contient ta clé personnelle : ne la partage pas.'), ' Elle ne sera plus affichée ; tu pourras la révoquer à tout moment dans les paramètres.'),
+      field(url),
+      h('p', {}, h('b', {}, 'claude.ai ou Claude Desktop'), ' : Paramètres → Connecteurs → Ajouter un connecteur personnalisé → nom « ReNotion », colle l’adresse ci-dessus, puis active-le dans une conversation.'),
+      h('p', {}, h('b', {}, 'Claude Code'), ' : dans un terminal :'),
+      field(cli),
+      h('p', {}, h('b', {}, 'Autres clients MCP'), ' : transport « Streamable HTTP » avec cette adresse (ou l’adresse sans le jeton et l’en-tête ', h('code', {}, 'Authorization: Bearer ' + tok.slice(0, 10) + '…'), ').'),
+      h('button', { class: 'btn primary', onclick: () => { closePop(); openSettings(); } }, 'J’ai copié l’adresse')));
   }
 
   /* ---------- Démarrage ---------- */

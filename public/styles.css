@@ -433,3 +433,10 @@ select.field { margin-bottom: 12px; }
   .ver-view { padding: 12px 16px; }
   #btn-redo { display: none; }
 }
+
+/* ---------- Assistants MCP ---------- */
+.mcp p { margin: 0 0 10px; }
+.mcp-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.mcp-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
+.mcp-row .btn { margin: 0; flex: none; }
+.modal .body code { font: 12px ui-monospace, monospace; background: var(--bg-inline-code); padding: 1px 4px; border-radius: 3px; }
