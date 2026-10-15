@@ -38,13 +38,15 @@ const TYPES = {
   quote: { label: 'Citation', desc: 'Capturez une citation.', icon: '❝', keys: 'citation quote' },
   callout: { label: 'Encadré', desc: 'Faites ressortir un texte.', icon: '💡', keys: 'encadre encadré callout note' },
   code: { label: 'Code', desc: 'Bloc de code.', icon: '</>', keys: 'code snippet' },
+  image: { label: 'Image', desc: 'Ajoutez une photo (ou collez-la, ou glissez-la dans la page).', icon: '🖼', keys: 'image photo img media illustration' },
+  file: { label: 'PDF / fichier', desc: 'Joignez un PDF avec aperçu intégré.', icon: '📕', keys: 'pdf fichier file document piece jointe' },
   table: { label: 'Tableau', desc: 'Lignes et colonnes, comme dans un tableur.', icon: '▦', keys: 'tableau table grille tableur colonnes' },
   divider: { label: 'Séparateur', desc: 'Séparez visuellement les blocs.', icon: '—', keys: 'separateur séparateur divider ligne hr' },
   page: { label: 'Page', desc: 'Intégrez une sous-page.', icon: '📄', keys: 'page sous-page subpage' },
 };
 const TEXT_TYPES = ['p', 'h1', 'h2', 'h3', 'todo', 'ul', 'ol', 'toggle', 'quote', 'callout', 'code'];
 const CONTINUE_TYPES = ['todo', 'ul', 'ol'];
-const PROP_KEYS = ['checked', 'collapsed', 'icon', 'lang', 'pageId', 'rows', 'headerRow', 'headerCol'];
+const PROP_KEYS = ['checked', 'collapsed', 'icon', 'lang', 'pageId', 'rows', 'headerRow', 'headerCol', 'path', 'src', 'name', 'size', 'mime', 'width', 'preview'];
 const LIST_TYPES = ['todo', 'ul', 'ol', 'toggle'];
 const PLACEHOLDER = { p: "Écrivez, ou tapez « / » pour les commandes…", h1: 'Titre 1', h2: 'Titre 2', h3: 'Titre 3', todo: 'À faire', ul: 'Liste', ol: 'Liste', toggle: 'Liste dépliante', quote: 'Citation vide', callout: 'Écrivez quelque chose…', code: '' };
 
@@ -422,6 +424,7 @@ function renderPage() {
   const wrap = h('div', { class: 'wrap' }, h('div', { class: 'blocks', id: 'blocks' }),
     h('div', { class: 'add-below', onclick: addBelowClick }));
   root.append(wrap);
+  Media.bindDrop(wrap);
   bindBlocks($('#blocks'));
   renderBlocks();
 }
@@ -572,6 +575,7 @@ function renderBlocks() {
     lastType[ind] = b.type;
     box.append(blockEl(b, num, p.blocks.length === 1));
   });
+  Media.hydrate(box);
   if (CLOUD) Cloud.decorate();
 }
 
@@ -596,6 +600,9 @@ function blockEl(b, num, only) {
   } else if (b.type === 'table') {
     row.tabIndex = -1;
     row.append(Table.render(b));
+  } else if (Media.isMedia(b)) {
+    row.tabIndex = 0;
+    row.append(Media.render(b));
   } else if (b.type === 'page') {
     row.tabIndex = 0;
     const sp = S.pages[b.pageId];
@@ -1080,6 +1087,8 @@ function onPaste(e) {
   if (!c) return;
   e.preventDefault();
   const b = blk(c.closest('.block').dataset.id);
+  const files = Media.filesOf(e.clipboardData);
+  if (files.length && b.type !== 'code') { readContent(b, c); Media.insertFiles(files, b.id); return; }
   const text = (e.clipboardData.getData('text/plain') || '').replace(/\r\n?/g, '\n');
   if (b.type === 'code') { document.execCommand('insertText', false, text); return; }
   const lines = text.split('\n');
@@ -1148,6 +1157,8 @@ function onClick(e) {
       blockMenu(b, act); break;
     case 'tbl-row': case 'tbl-col':
       Table.onAction(act.dataset.act, b); break;
+    case 'media-width': case 'media-preview': case 'media-text': case 'media-open':
+      Media.onAction(act.dataset.act, b); break;
   }
 }
 
@@ -1211,6 +1222,7 @@ function pickSlash(type) {
   rangeOf(c, start, off >= start ? off : start + 1).deleteContents();
   readContent(b, c);
   if (type === 'ai') { touch(pg()); return AI.open(id); }
+  if (type === 'image' || type === 'file') { touch(pg()); return Media.pick(type, id); }
   if (!c.textContent.trim() || type === 'divider') {
     if (type === 'divider' && c.textContent.trim()) {
       const nb = insertAfter(id, { id: uid(), type: 'divider', text: '', indent: b.indent || 0 });
@@ -1268,7 +1280,8 @@ function blockMenu(b, anchor) {
     const lc = lastCell && lastCell.id === b.id ? lastCell : { r: 0, c: 0 };
     items.push('-', ...Table.cellMenu(b, Math.min(lc.r, b.rows.length - 1), Math.min(lc.c, b.rows[0].length - 1)));
   }
-  if (b.type !== 'page' && b.type !== 'divider' && b.type !== 'table') {
+  if (Media.isMedia(b)) items.push({ icon: '🔁', label: 'Remplacer le fichier…', action: () => { Media.pick(b.type, b.id, { replaceEmpty: false }); deleteBlock(b.id); } });
+  if (b.type !== 'page' && b.type !== 'divider' && b.type !== 'table' && !Media.isMedia(b)) {
     items.push('-', { header: 'Transformer en' });
     TEXT_TYPES.concat(['table', 'page']).forEach((t) => { if (t !== b.type) items.push({ icon: TYPES[t].icon, label: TYPES[t].label, action: () => turnInto(b, t) }); });
   }
@@ -1388,7 +1401,7 @@ function openSearch() {
       const path = ancestors(p).map(titleOf).join(' / ');
       if (!nq) { out.push({ id: p.id, icon: iconOf(p), label: titleOf(p), snip: path, score: -p.updatedAt }); continue; }
       if (norm(titleOf(p)).includes(nq)) { out.push({ id: p.id, icon: iconOf(p), label: titleOf(p), snip: path, score: 0 }); continue; }
-      const hit = p.blocks.map((b) => (b.type === 'code' ? b.text : b.type === 'table' ? Table.plainText(b) : plain(b.text))).find((t) => norm(t).includes(nq));
+      const hit = p.blocks.map((b) => (b.type === 'code' ? b.text : b.type === 'table' ? Table.plainText(b) : Media.isMedia(b) ? b.name || '' : plain(b.text))).find((t) => norm(t).includes(nq));
       if (hit) {
         const i = norm(hit).indexOf(nq);
         out.push({ id: p.id, icon: iconOf(p), label: titleOf(p), snip: (i > 30 ? '…' : '') + hit.slice(Math.max(0, i - 30), i + 60), score: 1 });
@@ -1454,6 +1467,7 @@ function openSettings() {
       h('button', { class: 'btn primary', onclick: () => download(`renotion-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(S, null, 1), 'application/json') }, 'Exporter (JSON)'),
       h('button', { class: 'btn', onclick: () => $('#file-import').click() }, 'Importer une sauvegarde'),
       h('button', { class: 'btn', onclick: () => importMarkdown() }, 'Importer du Markdown'),
+      h('button', { class: 'btn', onclick: () => { closePop(); Media.importPdf(); } }, 'Importer un PDF'),
       h('p', { style: { marginTop: '14px' } }, 'Raccourcis : Ctrl+K recherche · Ctrl+B/I/U gras/italique/souligné · Ctrl+E code · Ctrl+Maj+X barré · Ctrl+K sur une sélection = lien · Ctrl+D dupliquer · Ctrl+Maj+↑/↓ déplacer · Ctrl+\\ barre latérale'));
   });
 }
@@ -1563,6 +1577,8 @@ function toMarkdown(p) {
       case 'divider': out.push('---', ''); break;
       case 'page': out.push(`${ind}📄 ${titleOf(S.pages[b.pageId])}`, ''); break;
       case 'table': out.push(Table.toMd(b), ''); break;
+      case 'image': out.push(`![${b.name || 'image'}](${b.name || 'image'})`, ''); break;
+      case 'file': out.push(`📎 ${b.name || 'fichier'}`, ''); break;
       default: out.push(ind + t, '');
     }
     if (b.type !== 'ol') counters[b.indent || 0] = 0;

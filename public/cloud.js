@@ -734,10 +734,29 @@ const Cloud = (() => {
     return map;
   }
 
+  /* ---------- Médias ---------- */
+
+  async function uploadMedia(file) {
+    if (!ws) throw new Error('Pas d’espace ouvert');
+    const base = (file.name || 'fichier').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(-80) || 'fichier';
+    const path = `${ws.id}/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${base}`;
+    const { error } = await sb.storage.from('media').upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+    if (error) throw new Error(/size|too large|exceed/i.test(error.message) ? 'fichier trop lourd (25 Mo max)' : /mime|type/i.test(error.message) ? 'type de fichier non accepté' : error.message);
+    return path;
+  }
+  async function signMedia(paths) {
+    const out = {};
+    if (!paths.length) return out;
+    const { data, error } = await sb.storage.from('media').createSignedUrls(paths, 3600);
+    if (error) throw error;
+    (data || []).forEach((d) => { if (d.signedUrl) out[d.path] = d.signedUrl; });
+    return out;
+  }
+
   async function token() {
     const { data } = await sb.auth.getSession();
     return data.session ? data.session.access_token : null;
   }
 
-  return { boot, schedule, flush, here, decorate, settings, token, fnUrl, saveVersion, listVersions, getVersion, memberNames, get config() { return CFG; } };
+  return { boot, schedule, flush, here, decorate, settings, token, fnUrl, saveVersion, listVersions, getVersion, memberNames, uploadMedia, signMedia, get config() { return CFG; } };
 })();

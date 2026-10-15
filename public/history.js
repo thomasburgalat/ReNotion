@@ -21,7 +21,7 @@ const History = (() => {
   function snap(p) {
     return clone({
       meta: { title: p.title || '', icon: p.icon || '', cover: p.cover || '' },
-      blocks: p.blocks.map((b) => { const c = { ...b }; delete c.pos; return c; }),
+      blocks: p.blocks.map((b) => { const c = { ...b }; delete c.pos; Object.keys(c).forEach((k) => { if (k[0] === '_') delete c[k]; }); return c; }),
     });
   }
 
@@ -226,7 +226,8 @@ const Versions = (() => {
     }
     box.querySelectorAll('[contenteditable]').forEach((el) => el.setAttribute('contenteditable', 'false'));
     box.querySelectorAll('[data-act], [draggable]').forEach((el) => { el.removeAttribute('data-act'); el.removeAttribute('draggable'); });
-    box.querySelectorAll('.handle, .tbl-add, .code-tools').forEach((el) => el.remove());
+    box.querySelectorAll('.handle, .tbl-add, .code-tools, .media-tools').forEach((el) => el.remove());
+    Media.hydrate(box);
     return box;
   }
 

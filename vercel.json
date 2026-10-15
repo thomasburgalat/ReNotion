@@ -4,6 +4,23 @@
   "buildCommand": "",
   "outputDirectory": "public",
   "headers": [
-    { "source": "/(.*)\\.(js|css|html)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] }
+    {
+      "source": "/(.*)\\.(js|css|html)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.mjs",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/javascript; charset=utf-8"
+        }
+      ]
+    }
   ]
 }
