@@ -472,3 +472,11 @@ select.field { margin-bottom: 12px; }
 }
 .wrap.file-drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
 @media (max-width: 760px) { .media-tools { opacity: 1; } .media-pdf { height: 420px; } }
+
+/* ---------- Sélection de blocs ---------- */
+.block.selected { background: var(--accent-soft); border-radius: 4px; }
+.block.selected .content, .block.selected .tbl th, .block.selected .tbl td { background: transparent; }
+.block.selected + .block.selected { border-top-left-radius: 0; border-top-right-radius: 0; }
+body.selecting-blocks, body.selecting-blocks * { user-select: none !important; cursor: default; }
+body.blocks-selected .content:focus:empty::before { content: none; }
+.select-band { position: fixed; z-index: 60; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 2px; pointer-events: none; }

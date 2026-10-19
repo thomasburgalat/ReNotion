@@ -334,7 +334,7 @@ function go(id, focusTitle) {
 
 let renderedPage = null;
 function render(focusTitle) {
-  if (renderedPage && renderedPage !== current) { History.commit(renderedPage); Versions.leave(renderedPage); }
+  if (renderedPage && renderedPage !== current) { History.commit(renderedPage); Versions.leave(renderedPage); Select.clear(); }
   const p = S.pages[current];
   closePop();
   if (!p || isDeleted(p)) {
@@ -576,6 +576,7 @@ function renderBlocks() {
     box.append(blockEl(b, num, p.blocks.length === 1));
   });
   Media.hydrate(box);
+  Select.paint();
   if (CLOUD) Cloud.decorate();
 }
 
@@ -1089,6 +1090,19 @@ function onPaste(e) {
   const b = blk(c.closest('.block').dataset.id);
   const files = Media.filesOf(e.clipboardData);
   if (files.length && b.type !== 'code') { readContent(b, c); Media.insertFiles(files, b.id); return; }
+  const exact = b.type !== 'code' && Select.readClipboard(e.clipboardData);
+  if (exact) {
+    // blocs copiés depuis ReNotion : on les recrée tels quels (images, tableaux…)
+    readContent(b, c);
+    const p = pg();
+    const i = idx(b.id);
+    const empty = b.type === 'p' && !c.textContent.trim();
+    p.blocks.splice(empty ? i : i + 1, empty ? 1 : 0, ...exact);
+    touch(p);
+    renderBlocks();
+    focusBlock(exact[exact.length - 1].id, 'end');
+    return;
+  }
   const text = (e.clipboardData.getData('text/plain') || '').replace(/\r\n?/g, '\n');
   if (b.type === 'code') { document.execCommand('insertText', false, text); return; }
   const lines = text.split('\n');
@@ -1268,6 +1282,7 @@ function menu(anchor, items) {
 
 function blockMenu(b, anchor) {
   anchor.closest('.handle').classList.add('show');
+  if (Select.size() > 1 && Select.includes(b.id)) return menu(anchor, Select.menuItems());
   const items = [
     { icon: '🗑', label: 'Supprimer', right: 'Suppr', danger: true, action: () => deleteBlock(b.id) },
     { icon: '⧉', label: 'Dupliquer', right: 'Ctrl+D', action: () => duplicateBlock(b.id) },
@@ -1558,9 +1573,12 @@ function htmlToMd(html) {
   return walk(t.content);
 }
 function toMarkdown(p) {
-  const out = [`# ${p.icon ? p.icon + ' ' : ''}${titleOf(p)}`, ''];
+  return `# ${p.icon ? p.icon + ' ' : ''}${titleOf(p)}\n\n` + mdOfBlocks(p.blocks);
+}
+function mdOfBlocks(blocks) {
+  const out = [];
   const counters = [];
-  p.blocks.forEach((b) => {
+  blocks.forEach((b) => {
     const ind = '  '.repeat(b.indent || 0);
     const t = b.type === 'code' ? b.text : htmlToMd(b.text);
     counters.length = (b.indent || 0) + 1;
@@ -1583,7 +1601,7 @@ function toMarkdown(p) {
     }
     if (b.type !== 'ol') counters[b.indent || 0] = 0;
   });
-  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
 function download(name, content, type) {

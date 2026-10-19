@@ -54,6 +54,15 @@ const AI = (() => {
     const p = S.pages[current];
     if (!p) return null;
     const t = { page: p, blockId: blockId || null, text: '', sel: null };
+    if (Select.size()) {
+      // plusieurs blocs sélectionnés : on travaille sur l'ensemble
+      const list = Select.blocks();
+      if (list.length === 1 && list[0].type === 'table') { t.blockId = list[0].id; t.text = Table.toMd(list[0]); t.table = true; return t; }
+      t.multi = list.map((b) => b.id);
+      t.blockId = t.multi[0];
+      t.text = mdOfBlocks(list);
+      return t;
+    }
     const b = blockId && p.blocks.find((x) => x.id === blockId);
     if (!b) return t;
     if (b.type === 'table') { t.text = Table.toMd(b); t.table = true; return t; }
@@ -90,7 +99,7 @@ const AI = (() => {
     const actions = target.table ? TABLE_ACTIONS : target.text.trim() ? TEXT_ACTIONS : PAGE_ACTIONS;
     const drawList = () => {
       list.innerHTML = '';
-      list.append(h('div', { class: 'hdr' }, target.table ? 'Modifier ce tableau' : target.text.trim() ? (target.sel ? 'Modifier la sélection' : 'Modifier ce bloc') : 'Écrire avec l’IA'));
+      list.append(h('div', { class: 'hdr' }, target.table ? 'Modifier ce tableau' : target.multi ? `Modifier les ${target.multi.length} blocs sélectionnés` : target.text.trim() ? (target.sel ? 'Modifier la sélection' : 'Modifier ce bloc') : 'Écrire avec l’IA'));
       actions.forEach(([ic, label, instr]) => list.append(h('button', { class: 'item', onclick: () => run(instr, label) }, h('span', { class: 'ic' }, ic), label)));
       if (target.text.trim()) {
         list.append(h('div', { class: 'hdr' }, 'Page'));
@@ -179,7 +188,7 @@ const AI = (() => {
       if (!answer.trim()) { out.textContent = 'Aucune réponse.'; }
       const canReplace = !!target.blockId && !!target.text.trim() && (!target.table || /^\s*\|.*\|\s*$/m.test(answer));
       foot.append(
-        canReplace ? h('button', { class: 'btn primary', onclick: () => apply('replace') }, target.sel ? 'Remplacer la sélection' : target.table ? 'Mettre à jour le tableau' : 'Remplacer') : null,
+        canReplace ? h('button', { class: 'btn primary', onclick: () => apply('replace') }, target.sel || target.multi ? 'Remplacer la sélection' : target.table ? 'Mettre à jour le tableau' : 'Remplacer') : null,
         h('button', { class: 'btn' + (canReplace ? '' : ' primary'), onclick: () => apply('below') }, 'Insérer en dessous'),
         h('button', { class: 'btn', onclick: () => run(lastInstr, label) }, 'Réessayer'),
         h('button', { class: 'btn', onclick: () => navigator.clipboard.writeText(answer).then(() => toast('Copié')) }, 'Copier'),
@@ -196,6 +205,19 @@ const AI = (() => {
       const i = target.blockId ? p.blocks.findIndex((b) => b.id === target.blockId) : -1;
       const ref = p.blocks[i];
       let focusId = blocks[blocks.length - 1].id;
+      if (target.multi) {
+        const set = new Set(target.multi);
+        const first = p.blocks.findIndex((b) => set.has(b.id));
+        const last = p.blocks.map((b) => set.has(b.id)).lastIndexOf(true);
+        if (how === 'replace' && first >= 0) { p.blocks = p.blocks.filter((b) => !set.has(b.id)); p.blocks.splice(first, 0, ...blocks); }
+        else p.blocks.splice(last >= 0 ? last + 1 : p.blocks.length, 0, ...blocks);
+        Select.clear();
+        touch(p);
+        closePop();
+        if (p.id === current) { renderBlocks(); focusBlock(focusId, 'end'); }
+        toast('Contenu de l’IA ajouté');
+        return;
+      }
       const ti = blocks.findIndex((x) => x.type === 'table');
       if (how === 'replace' && ref && ref.type === 'table' && ti >= 0) {
         // on garde le même bloc (et son identifiant) pour une synchro propre

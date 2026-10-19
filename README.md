@@ -10,6 +10,7 @@ Un espace de notes par blocs inspiré de Notion, écrit de zéro (aucun code de 
 - Éditeur par blocs : texte, titres 1 à 3, listes à puces / numérotées / de tâches, listes dépliantes, citations, encadrés, code, séparateurs, sous-pages, **tableaux**, **images** et **PDF**
 - Médias : coller une photo (Ctrl+V), glisser des fichiers dans la page, `/image`, `/pdf` ; aperçu PDF intégré, « Extraire le texte » (pdf.js) pour rendre le contenu cherchable et lisible par l'IA ; Paramètres → Importer un PDF ; stockage privé Supabase (25 Mo max par fichier)
 - Tableaux : Tab / Entrée pour naviguer, ＋ pour ajouter lignes et colonnes, clic droit pour insérer, supprimer, trier ou définir les en-têtes ; coller depuis un tableur ou du Markdown remplit les cellules
+- **Sélection de blocs** : Ctrl+A deux fois (toute la page), glisser à la souris d'un bloc à l'autre ou depuis la marge, Maj+clic, Maj+↑/↓ ; puis copier / couper / coller (les blocs sont recréés à l'identique, images et tableaux compris), Suppr, Tab, Ctrl+D, transformer en, ou Ctrl+J pour l'IA
 - Menu `/`, raccourcis Markdown (`#`, `-`, `1.`, `[]`, `>`, `"`, ` ``` `, `---`), glisser-déposer, Tab / Maj+Tab
 - Coller du Markdown crée les blocs correspondants
 - Recherche plein texte (Ctrl+K), icônes, couvertures, corbeille, thème clair / sombre, mobile
