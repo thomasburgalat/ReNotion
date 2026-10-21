@@ -1677,6 +1677,7 @@ applyTheme();
 document.body.classList.toggle('sb-hidden', UI.sbHidden || innerWidth <= 760);
 
 $('#btn-today').addEventListener('click', () => Extras.openToday());
+Radio.init();
 $('#btn-new').addEventListener('click', () => { go(newPage(null).id, true); if (innerWidth <= 760) setSidebar(false); });
 $('#btn-new2').addEventListener('click', () => { go(newPage(null).id, true); if (innerWidth <= 760) setSidebar(false); });
 $('#btn-folder').addEventListener('click', () => { go(newFolder(null).id, true); });
@@ -1705,7 +1706,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && $('#layer').children.length) closePop();
 });
 document.addEventListener('mousedown', (e) => {
-  if (!e.target.closest('.pop') && !e.target.closest('.modal-back') && !e.target.closest('[data-act="menu"]')) {
+  if (!e.target.closest('.pop') && !e.target.closest('.modal-back') && !e.target.closest('[data-act="menu"]') && !e.target.closest('#btn-radio')) {
     document.querySelectorAll('.pop').forEach((p) => p.remove());
     slash = null;
     document.querySelectorAll('.handle.show').forEach((x) => x.classList.remove('show'));

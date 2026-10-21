@@ -22,6 +22,7 @@ Un espace de notes par blocs inspiré de Notion, écrit de zéro (aucun code de 
 - **Annuler / Rétablir** (Ctrl+Z, Ctrl+Maj+Z ou ↶ ↷) : propre à chaque personne, n'annule que ses propres modifications même quand d'autres éditent la même page
 - **Historique des versions** (menu ⋯ → Historique) : versions automatiques pendant l'édition (au plus toutes les 5 min, plus l'état d'avant tes modifications), aperçu, auteur, restauration annulable ; 100 versions gardées par page
 - **Serveur MCP** : connecte Claude (claude.ai, Desktop, Code) ou un autre agent à tes espaces via Paramètres → Connecter un assistant ; outils : lister, chercher, lire, créer des pages et dossiers, ajouter ou remplacer du contenu, renommer, déplacer, mettre à la corbeille
+- **Radio** (📻 en haut à droite) : 13 stations du monde entier, lecture continue en changeant de page, volume et station mémorisés, touches multimédia
 - Export / import JSON, import de fichiers Markdown, export d'une page en Markdown
 
 ## Architecture
