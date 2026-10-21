@@ -175,6 +175,7 @@ const AI = (() => {
 
     let answer = '';
     let lastInstr = '';
+    let fallbackNote = false;
     const ask = () => { const v = input.value.trim(); if (v) run(v, v); };
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); ask(); }
@@ -234,6 +235,7 @@ const AI = (() => {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.error || err.message || `Erreur ${res.status}`);
         }
+        fallbackNote = !!res.headers.get('x-fallback');
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
@@ -251,10 +253,10 @@ const AI = (() => {
               const delta = d.choices && d.choices[0] && d.choices[0].delta;
               if (!delta) continue;
               const { text, reasoning } = readDelta(delta);
-              if (reasoning) thinking += reasoning;
+              if (reasoning && engine === 'reflexion') thinking += reasoning; // hors mode Réflexion, on n'affiche pas la réflexion interne
               if (text) answer += text;
               // les modèles qui écrivent leur réflexion entre <think>…</think>
-              const tm = answer.match(/^\s*<think>([\s\S]*?)(<\/think>|$)/);
+              const tm = engine === 'reflexion' && answer.match(/^\s*<think>([\s\S]*?)(<\/think>|$)/);
               const shownThink = thinking + (tm ? tm[1] : '');
               if (shownThink.trim()) {
                 think.hidden = false;
@@ -286,6 +288,7 @@ const AI = (() => {
     function finish(label) {
       foot.innerHTML = '';
       if (!answer.trim()) { out.textContent = 'Aucune réponse.'; }
+      if (fallbackNote) foot.append(h('div', { class: 'muted ai-note' }, 'ℹ️ Magistral (Mistral) était indisponible : la réflexion a été faite par gpt-oss sur Groq.'));
       const canReplace = !!target.blockId && !!target.text.trim() && (!target.table || /^\s*\|.*\|\s*$/m.test(answer));
       foot.append(
         canReplace ? h('button', { class: 'btn primary', onclick: () => apply('replace') }, target.sel || target.multi ? 'Remplacer la sélection' : target.table ? 'Mettre à jour le tableau' : 'Remplacer') : null,

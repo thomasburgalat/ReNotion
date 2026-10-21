@@ -7,7 +7,7 @@ const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Expose-Headers': 'x-model, x-engine',
+  'Access-Control-Expose-Headers': 'x-model, x-engine, x-fallback',
 };
 
 function json(body: unknown, status = 200) {
@@ -87,15 +87,34 @@ Deno.serve(async (req) => {
       res = await call(provider, model, messages, temperature, think);
     } else return json({ error: `Erreur ${provider.name} : ` + err.slice(0, 300) }, 502);
   }
+  // un nouvel essai si le fournisseur est saturé
+  if (!res.ok && (res.status === 429 || res.status >= 500)) {
+    await res.text();
+    await new Promise((r) => setTimeout(r, 1500));
+    res = await call(provider, model, messages, temperature, think);
+  }
+  let fallback = '';
+  if (!res.ok && think && provider !== GROQ && GROQ.key) {
+    // Magistral indisponible : réflexion poussée avec gpt-oss sur Groq
+    const why = (await res.text()).slice(0, 200);
+    console.error('magistral', res.status, why);
+    fallback = `magistral-${res.status}`;
+    provider = GROQ;
+    model = GROQ.envModel || 'openai/gpt-oss-120b';
+    res = await call(provider, model, messages, temperature, true);
+  }
   if (!res.ok || !res.body) {
     const err = await res.text();
-    const msg = res.status === 429 ? 'Limite atteinte chez ' + provider.name + ', réessaie dans un instant'
-      : res.status === 401 ? 'Clé API ' + provider.name + ' refusée'
-      : `Erreur ${provider.name} : ` + err.slice(0, 300);
+    console.error(provider.name, res.status, err.slice(0, 500));
+    let detail = '';
+    try { const j = JSON.parse(err); detail = j.message || j.error?.message || j.detail || ''; } catch { detail = err.slice(0, 200); }
+    const msg = res.status === 429 ? `Limite atteinte chez ${provider.name}${detail ? ' (' + String(detail).slice(0, 160) + ')' : ''}, réessaie dans un instant`
+      : res.status === 401 || res.status === 403 ? `Clé API ${provider.name} refusée${detail ? ' (' + String(detail).slice(0, 160) + ')' : ''}`
+      : `Erreur ${provider.name} : ` + (detail || err).toString().slice(0, 300);
     return json({ error: msg }, res.status === 429 ? 429 : 502);
   }
-  resolved.set(cacheKey, model);
+  if (!fallback) resolved.set(cacheKey, model);
   return new Response(res.body, {
-    headers: { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Model': model, 'X-Engine': engine },
+    headers: { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Model': model, 'X-Engine': engine, ...(fallback ? { 'X-Fallback': fallback } : {}) },
   });
 });

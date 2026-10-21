@@ -512,3 +512,4 @@ body.blocks-selected .content:focus:empty::before { content: none; }
 }
 .dict-live { opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw; }
 .dict-dot { width: 10px; height: 10px; border-radius: 50%; background: #eb5757; animation: blink 1s infinite; flex: none; }
+.ai-note { width: 100%; font-size: 12px; margin-bottom: 6px; }
