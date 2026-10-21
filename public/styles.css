@@ -480,3 +480,35 @@ select.field { margin-bottom: 12px; }
 body.selecting-blocks, body.selecting-blocks * { user-select: none !important; cursor: default; }
 body.blocks-selected .content:focus:empty::before { content: none; }
 .select-band { position: fixed; z-index: 60; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 2px; pointer-events: none; }
+
+/* ---------- IA : moteurs et réflexion ---------- */
+.ai-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.ai-chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--fg-muted); }
+.ai-chip:hover { background: var(--bg-hover); }
+.ai-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ai-sep { flex: 1; }
+.ai-think { margin: 8px 12px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-side); font-size: 13px; }
+.ai-think summary { cursor: pointer; padding: 6px 10px; color: var(--fg-muted); user-select: none; }
+.ai-think-body { padding: 0 12px 10px; max-height: 180px; overflow-y: auto; white-space: pre-wrap; color: var(--fg-muted); line-height: 1.5; }
+.ai-think[hidden] { display: none; }
+
+/* ---------- Modèles, sommaire, dictée ---------- */
+.tpl-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0 0; }
+.tpl-hints .chip { box-shadow: none; border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 13px; padding: 4px 10px; }
+.tpl-hints .chip:hover { background: var(--bg-hover); }
+.block[data-type="toc"] .prefix { display: none; }
+.block[data-type="toc"] { outline: none; }
+.toc { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px; border-left: 2px solid var(--border); margin: 4px 0; }
+.toc-item { color: var(--fg-muted); text-decoration: none; padding: 2px 8px; border-radius: 4px; font-size: 14px; }
+.toc-item:hover { background: var(--bg-hover); color: var(--fg); }
+.toc-item.lvl1 { font-weight: 600; color: var(--fg); }
+.toc-item.lvl2 { padding-left: 22px; }
+.toc-item.lvl3 { padding-left: 36px; font-size: 13px; }
+.block.flash { animation: flash 1.2s ease; }
+@keyframes flash { 0%, 40% { background: var(--accent-soft); } 100% { background: transparent; } }
+.dict-pill {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 8px;
+  background: var(--fg); color: var(--bg); padding: 8px 16px; border-radius: 999px; font-size: 14px; box-shadow: var(--shadow); max-width: calc(100vw - 32px);
+}
+.dict-live { opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw; }
+.dict-dot { width: 10px; height: 10px; border-radius: 50%; background: #eb5757; animation: blink 1s infinite; flex: none; }

@@ -1,9 +1,15 @@
 'use strict';
 
-/* Assistant IA (Groq via la fonction Supabase « ai »), façon Notion AI. */
+/* Assistant IA (fonction Supabase « ai ») : Groq (rapide), Mistral, ou Magistral (réflexion), façon Notion AI. */
 
 const AI = (() => {
   let ctrl = null;
+
+  const ENGINES = {
+    rapide: { icon: '⚡', label: 'Rapide', desc: 'Groq · réponses instantanées' },
+    mistral: { icon: 'Ⓜ', label: 'Mistral', desc: 'Mistral · très bon en français' },
+    reflexion: { icon: '🧠', label: 'Réflexion', desc: 'Magistral · raisonne avant de répondre' },
+  };
 
   const SYSTEM = [
     'Tu es l’assistant d’écriture intégré à ReNotion, un éditeur de notes par blocs.',
@@ -42,6 +48,36 @@ const AI = (() => {
     ['🗂', 'Rédiger un plan', 'Propose un plan structuré (titres et sous-points) pour le sujet de la page.'],
     ['▦', 'Créer un tableau', 'Crée un tableau Markdown utile et bien rempli en lien avec le sujet de la page (par exemple une comparaison, un planning ou un récapitulatif).'],
   ];
+
+  /* ---------- Contexte « tout l'espace » ---------- */
+
+  const words = (s) => norm(s).split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+
+  // Sélectionne les pages les plus pertinentes pour la question (mots en commun), dans une limite de taille
+  function workspaceContext(question, budget = 40000) {
+    const q = new Set(words(question));
+    const pages = Object.values(S.pages).filter((p) => !isDeleted(p) && !isFolder(p));
+    const scored = pages.map((p) => {
+      const md = toMarkdown(p);
+      const w = words(md);
+      let score = 0;
+      w.forEach((x) => { if (q.has(x)) score += 1; });
+      words(titleOf(p)).forEach((x) => { if (q.has(x)) score += 8; });
+      if (p.id === current) score += 3;
+      return { p, md, score: score / Math.sqrt(w.length + 20) };
+    }).sort((a, b) => b.score - a.score);
+    const parts = [];
+    let used = 0;
+    for (const { p, md, score } of scored) {
+      if (used > budget) break;
+      if (!score && parts.length >= 6) break;
+      const path = [...ancestors(p), p].map(titleOf).join(' / ');
+      const chunk = md.length > 9000 ? md.slice(0, 9000) + '\n…' : md;
+      parts.push(`### Page : ${path}\n${chunk}`);
+      used += chunk.length;
+    }
+    return { text: parts.join('\n\n---\n\n'), count: parts.length, total: pages.length };
+  }
 
   function pageMarkdown(p) {
     let md = toMarkdown(p);
@@ -82,25 +118,54 @@ const AI = (() => {
     return t;
   }
 
-  function open(blockId) {
+  function open(blockId, opts = {}) {
     if (!CLOUD) { toast('L’IA est disponible dans la version en ligne de ReNotion'); return; }
     if (isFolder(S.pages[current])) { toast('Ouvre une page pour utiliser l’IA'); return; }
     const target = captureTarget(blockId);
     if (!target) return;
     closePop();
+    let engine = opts.engine || UI.aiEngine || 'rapide';
+    if (!ENGINES[engine]) engine = 'rapide';
+    let scope = opts.scope === 'space' ? 'space' : 'page';
 
     const input = h('input', { type: 'text', placeholder: target.table ? 'Que faire avec ce tableau ? (ex. « ajoute une colonne prix »)' : target.text.trim() ? 'Que faire avec ce texte ?' : 'Demander à l’IA d’écrire, résumer, brainstormer…', 'aria-label': 'Demande à l’IA' });
     const send = h('button', { class: 'icon-btn ai-send', title: 'Envoyer' }, '↑');
     const out = h('div', { class: 'ai-out', hidden: true });
     const list = h('div', { class: 'ai-list' });
     const foot = h('div', { class: 'ai-foot', hidden: true });
-    const panel = h('div', { class: 'pop ai-panel', id: 'ai' }, h('div', { class: 'ai-input' }, h('span', { class: 'ai-spark' }, '✨'), input, send), out, foot, list);
+    const think = h('details', { class: 'ai-think', hidden: true }, h('summary', {}, '🧠 Réflexion'), h('div', { class: 'ai-think-body' }));
+    const bar = h('div', { class: 'ai-bar' });
+    const drawBar = () => {
+      bar.innerHTML = '';
+      Object.entries(ENGINES).forEach(([k, e]) => bar.append(h('button', {
+        class: 'ai-chip' + (engine === k ? ' on' : ''), title: e.desc,
+        onclick: () => { engine = k; UI.aiEngine = k; saveUI(); drawBar(); input.focus(); },
+      }, e.icon + ' ' + e.label)));
+      bar.append(h('span', { class: 'ai-sep' }), h('button', {
+        class: 'ai-chip' + (scope === 'space' ? ' on' : ''), title: 'Répondre en s’appuyant sur toutes les pages de l’espace',
+        onclick: () => { scope = scope === 'space' ? 'page' : 'space'; drawBar(); input.placeholder = placeholder(); input.focus(); },
+      }, '🔎 Tout l’espace'));
+    };
+    drawBar();
+    const placeholder = () => scope === 'space' ? 'Pose une question sur tout l’espace (ex. « qu’avait-on décidé pour le budget ? »)' : input.getAttribute('data-ph') || input.placeholder;
+    input.setAttribute('data-ph', input.placeholder);
+    input.placeholder = placeholder();
+    const panel = h('div', { class: 'pop ai-panel', id: 'ai' }, h('div', { class: 'ai-input' }, h('span', { class: 'ai-spark' }, '✨'), input, send), bar, think, out, foot, list);
 
     const actions = target.table ? TABLE_ACTIONS : target.text.trim() ? TEXT_ACTIONS : PAGE_ACTIONS;
     const drawList = () => {
       list.innerHTML = '';
       list.append(h('div', { class: 'hdr' }, target.table ? 'Modifier ce tableau' : target.multi ? `Modifier les ${target.multi.length} blocs sélectionnés` : target.text.trim() ? (target.sel ? 'Modifier la sélection' : 'Modifier ce bloc') : 'Écrire avec l’IA'));
       actions.forEach(([ic, label, instr]) => list.append(h('button', { class: 'item', onclick: () => run(instr, label) }, h('span', { class: 'ic' }, ic), label)));
+      list.append(h('div', { class: 'hdr' }, 'Tout l’espace'));
+      [
+        ['🔎', 'Demander à tout l’espace…', null],
+        ['🗞', 'Résumer ce qui s’est passé récemment', 'Fais un point clair sur les sujets en cours dans l’espace : décisions prises, tâches ouvertes, prochaines étapes. Cite les pages.'],
+        ['🔗', 'Trouver les liens avec cette page', 'Quelles autres pages de l’espace sont liées au sujet de la page actuelle, et en quoi ? Liste-les avec une phrase chacune.'],
+      ].forEach(([ic, label, instr]) => list.append(h('button', { class: 'item', onclick: () => {
+        scope = 'space'; drawBar();
+        if (instr) { target.text = ''; target.sel = null; run(instr, label); } else { input.placeholder = placeholder(); input.focus(); }
+      } }, h('span', { class: 'ic' }, ic), label)));
       if (target.text.trim()) {
         list.append(h('div', { class: 'hdr' }, 'Page'));
         PAGE_ACTIONS.slice(1, 3).forEach(([ic, label, instr]) => list.append(h('button', { class: 'item', onclick: () => { target.text = ''; target.sel = null; run(instr, label); } }, h('span', { class: 'ic' }, ic), label)));
@@ -125,17 +190,36 @@ const AI = (() => {
       out.textContent = '';
       out.classList.add('loading');
       answer = '';
+      let thinking = '';
+      const t0 = Date.now();
+      think.hidden = true;
+      think.open = engine === 'reflexion';
+      think.querySelector('.ai-think-body').textContent = '';
       input.value = '';
       input.placeholder = label;
       foot.innerHTML = '';
-      foot.append(h('span', { class: 'muted' }, 'L’IA écrit…'), h('button', { class: 'btn', onclick: stop }, 'Arrêter'));
+      const status = h('span', { class: 'muted' }, engine === 'reflexion' ? '🧠 L’IA réfléchit…' : 'L’IA écrit…');
+      foot.append(status, h('button', { class: 'btn', onclick: stop }, 'Arrêter'));
 
-      const user = [
-        `Titre de la page : ${titleOf(target.page)}`,
-        `Contenu de la page (Markdown) :\n<<<\n${pageMarkdown(target.page)}\n>>>`,
-        target.text.trim() ? `${target.table ? 'Tableau ciblé (Markdown)' : 'Texte ciblé'} :\n<<<\n${target.text}\n>>>` : '',
-        `Instruction : ${instruction}`,
-      ].filter(Boolean).join('\n\n');
+      let user;
+      let system = SYSTEM;
+      if (scope === 'space') {
+        const ctx = workspaceContext(instruction + ' ' + target.text);
+        system = SYSTEM + ' Tu réponds à partir des notes de l’espace fournies ci-dessous. Appuie-toi uniquement sur elles ; si l’information n’y est pas, dis-le clairement. Cite tes sources en mettant le titre de la page entre parenthèses, par exemple (📄 **Titre**).';
+        user = [
+          `Notes de l’espace (${ctx.count} pages les plus pertinentes sur ${ctx.total}) :\n<<<\n${ctx.text}\n>>>`,
+          `Page ouverte : ${titleOf(target.page)}`,
+          target.text.trim() ? `Texte ciblé :\n<<<\n${target.text}\n>>>` : '',
+          `Question ou instruction : ${instruction}`,
+        ].filter(Boolean).join('\n\n');
+      } else {
+        user = [
+          `Titre de la page : ${titleOf(target.page)}`,
+          `Contenu de la page (Markdown) :\n<<<\n${pageMarkdown(target.page)}\n>>>`,
+          target.text.trim() ? `${target.table ? 'Tableau ciblé (Markdown)' : 'Texte ciblé'} :\n<<<\n${target.text}\n>>>` : '',
+          `Instruction : ${instruction}`,
+        ].filter(Boolean).join('\n\n');
+      }
 
       ctrl = new AbortController();
       try {
@@ -144,7 +228,7 @@ const AI = (() => {
           method: 'POST',
           signal: ctrl.signal,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}`, apikey: Cloud.config.supabaseKey },
-          body: JSON.stringify({ messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }] }),
+          body: JSON.stringify({ engine, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -164,8 +248,23 @@ const AI = (() => {
             if (!m || m[1] === '[DONE]') continue;
             try {
               const d = JSON.parse(m[1]);
-              const piece = d.choices && d.choices[0] && d.choices[0].delta && d.choices[0].delta.content;
-              if (piece) { answer += piece; out.textContent = clean(answer); out.scrollTop = out.scrollHeight; }
+              const delta = d.choices && d.choices[0] && d.choices[0].delta;
+              if (!delta) continue;
+              const { text, reasoning } = readDelta(delta);
+              if (reasoning) thinking += reasoning;
+              if (text) answer += text;
+              // les modèles qui écrivent leur réflexion entre <think>…</think>
+              const tm = answer.match(/^\s*<think>([\s\S]*?)(<\/think>|$)/);
+              const shownThink = thinking + (tm ? tm[1] : '');
+              if (shownThink.trim()) {
+                think.hidden = false;
+                think.querySelector('summary').textContent = `🧠 Réflexion (${Math.round((Date.now() - t0) / 1000)} s)`;
+                const tb = think.querySelector('.ai-think-body');
+                tb.textContent = shownThink.trim();
+                tb.scrollTop = tb.scrollHeight;
+              }
+              const visible = clean(answer);
+              if (visible) { status.textContent = 'L’IA écrit…'; out.textContent = visible; out.scrollTop = out.scrollHeight; }
             } catch (e) { /* fragment incomplet */ }
           }
         }
@@ -180,6 +279,7 @@ const AI = (() => {
       } finally { ctrl = null; }
       out.classList.remove('loading');
       answer = clean(answer);
+      if (!think.hidden) { think.open = false; think.querySelector('summary').textContent = `🧠 A réfléchi ${Math.round((Date.now() - t0) / 1000)} s`; }
       finish(label);
     }
 
@@ -260,6 +360,25 @@ const AI = (() => {
     if (r && r.bottom + 360 < innerHeight) panel.style.top = r.bottom + 6 + 'px';
     else panel.style.bottom = '16px';
     input.focus();
+  }
+
+  // Mistral/Magistral : content peut être une liste de morceaux { type: 'thinking' | 'text' } ; Groq : delta.reasoning
+  function readDelta(delta) {
+    let text = '';
+    let reasoning = delta.reasoning || delta.reasoning_content || '';
+    const c = delta.content;
+    if (typeof c === 'string') text = c;
+    else if (Array.isArray(c)) {
+      for (const part of c) {
+        if (!part) continue;
+        if (part.type === 'text') text += part.text || '';
+        else if (part.type === 'thinking') {
+          const th = part.thinking;
+          reasoning += Array.isArray(th) ? th.map((x) => (x && x.text) || '').join('') : th || '';
+        }
+      }
+    }
+    return { text, reasoning };
   }
 
   function clean(t) {

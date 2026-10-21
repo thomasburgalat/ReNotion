@@ -15,6 +15,9 @@ Un espace de notes par blocs inspiré de Notion, écrit de zéro (aucun code de 
 - Coller du Markdown crée les blocs correspondants
 - Recherche plein texte (Ctrl+K), icônes, couvertures, corbeille, thème clair / sombre, mobile
 - **Collaboration en direct** : les modifications apparaissent chez les autres en moins d'une seconde ; avatars des personnes connectées et indicateur « X édite ce bloc »
+- **Trois moteurs d'IA** : ⚡ Rapide (Groq), Ⓜ Mistral, 🧠 Réflexion (Magistral, qui raisonne avant de répondre ; la réflexion s'affiche en direct). Section « Mistral » dans le menu `/`.
+- **Demander à tout l'espace** (`/` → Demander à tout l'espace, ou 🔎 dans le panneau IA) : réponses fondées sur toutes vos pages, avec les sources citées
+- **Modèles de pages** (réunion, projet, voyage, journal, cours, recette, planning, boîte à idées), **page du jour** (📅 Aujourd'hui → dossier Journal), **sommaire** cliquable, **dictée vocale** (`/dicter`), **date du jour**, compteur de mots et temps de lecture (menu ⋯)
 - **IA** (Ctrl+J, `/ia` ou bouton ✨) : améliorer, corriger, raccourcir, développer, traduire, changer le ton, résumer la page, continuer à écrire, extraire les tâches, brainstormer, créer un tableau, ou demande libre. Sur un tableau : remplir les cellules vides, ajouter des lignes ou une colonne, corriger, traduire, résumer. Le résultat peut être inséré ou remplacer le texte.
 - **Annuler / Rétablir** (Ctrl+Z, Ctrl+Maj+Z ou ↶ ↷) : propre à chaque personne, n'annule que ses propres modifications même quand d'autres éditent la même page
 - **Historique des versions** (menu ⋯ → Historique) : versions automatiques pendant l'édition (au plus toutes les 5 min, plus l'état d'avant tes modifications), aperçu, auteur, restauration annulable ; 100 versions gardées par page
@@ -50,7 +53,7 @@ Paramètres → **Lien d'invitation** → copier et envoyer. La personne choisit
 
 ## Configuration de l'IA
 
-Ajouter le secret `GROQ_API_KEY` (clé créée sur https://console.groq.com/keys) dans Supabase → Edge Functions → Secrets. Le secret optionnel `GROQ_MODEL` force un modèle ; sinon la fonction choisit automatiquement un modèle disponible (gpt-oss-120b, llama-3.3-70b…).
+Ajouter les secrets `GROQ_API_KEY` et `MISTRAL_API_KEY` (clé créée sur https://console.mistral.ai). Sans clé Mistral, le moteur Réflexion utilise gpt-oss sur Groq avec un raisonnement poussé. Ajouter le secret `GROQ_API_KEY` (clé créée sur https://console.groq.com/keys) dans Supabase → Edge Functions → Secrets. Le secret optionnel `GROQ_MODEL` force un modèle ; sinon la fonction choisit automatiquement un modèle disponible (gpt-oss-120b, llama-3.3-70b…).
 
 ## Développement local
 

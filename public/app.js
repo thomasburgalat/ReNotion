@@ -26,7 +26,14 @@ function h(tag, attrs, ...kids) {
 /* ---------- Types de blocs ---------- */
 
 const TYPES = {
-  ai: { label: 'Demander à l’IA', desc: 'Rédiger, résumer, traduire, brainstormer…', icon: '✨', keys: 'ia ai intelligence artificielle assistant ecrire' },
+  ai: { group: 'IA', label: 'Demander à l’IA', desc: 'Rédiger, résumer, traduire, brainstormer…', icon: '✨', keys: 'ia ai intelligence artificielle assistant ecrire' },
+  askspace: { group: 'IA', label: 'Demander à tout l’espace', desc: 'Une question ? L’IA répond à partir de toutes vos pages.', icon: '🔎', keys: 'ia ai question espace recherche demander chercher' },
+  mistral: { group: 'Mistral', label: 'Demander à Mistral', desc: 'Écrire, résumer, traduire avec Mistral.', icon: 'Ⓜ', keys: 'mistral ia ai le chat' },
+  think: { group: 'Mistral', label: 'IA Réflexion (Magistral)', desc: 'Raisonne en profondeur avant de répondre.', icon: '🧠', keys: 'reflexion raisonnement magistral mistral think penser ia ai' },
+  template: { group: 'Avancé', label: 'Modèle de page…', desc: 'Réunion, projet, voyage, journal, recette…', icon: '🧩', keys: 'modele template gabarit' },
+  toc: { group: 'Avancé', label: 'Sommaire', desc: 'Liste cliquable des titres de la page.', icon: '☰', keys: 'sommaire table des matieres toc plan' },
+  dictate: { group: 'Avancé', label: 'Dicter', desc: 'Écris à la voix (micro).', icon: '🎙', keys: 'dicter dictee voix micro parler' },
+  date: { group: 'Avancé', label: 'Date du jour', desc: 'Insère la date d’aujourd’hui.', icon: '📅', keys: 'date jour aujourdhui' },
   p: { label: 'Texte', desc: 'Commencez à écrire du texte simple.', icon: 'Aa', keys: 'texte text paragraphe paragraph' },
   h1: { label: 'Titre 1', desc: 'Grand titre de section.', icon: 'H1', keys: 'titre heading h1' },
   h2: { label: 'Titre 2', desc: 'Titre de section moyen.', icon: 'H2', keys: 'titre heading h2' },
@@ -38,12 +45,14 @@ const TYPES = {
   quote: { label: 'Citation', desc: 'Capturez une citation.', icon: '❝', keys: 'citation quote' },
   callout: { label: 'Encadré', desc: 'Faites ressortir un texte.', icon: '💡', keys: 'encadre encadré callout note' },
   code: { label: 'Code', desc: 'Bloc de code.', icon: '</>', keys: 'code snippet' },
-  image: { label: 'Image', desc: 'Ajoutez une photo (ou collez-la, ou glissez-la dans la page).', icon: '🖼', keys: 'image photo img media illustration' },
-  file: { label: 'PDF / fichier', desc: 'Joignez un PDF avec aperçu intégré.', icon: '📕', keys: 'pdf fichier file document piece jointe' },
-  table: { label: 'Tableau', desc: 'Lignes et colonnes, comme dans un tableur.', icon: '▦', keys: 'tableau table grille tableur colonnes' },
+  image: { group: 'Médias', label: 'Image', desc: 'Ajoutez une photo (ou collez-la, ou glissez-la dans la page).', icon: '🖼', keys: 'image photo img media illustration' },
+  file: { group: 'Médias', label: 'PDF / fichier', desc: 'Joignez un PDF avec aperçu intégré.', icon: '📕', keys: 'pdf fichier file document piece jointe' },
+  table: { group: 'Avancé', label: 'Tableau', desc: 'Lignes et colonnes, comme dans un tableur.', icon: '▦', keys: 'tableau table grille tableur colonnes' },
   divider: { label: 'Séparateur', desc: 'Séparez visuellement les blocs.', icon: '—', keys: 'separateur séparateur divider ligne hr' },
   page: { label: 'Page', desc: 'Intégrez une sous-page.', icon: '📄', keys: 'page sous-page subpage' },
 };
+const PSEUDO_TYPES = new Set(['ai', 'askspace', 'mistral', 'think', 'template', 'dictate', 'date']);
+const SLASH_GROUPS = ['IA', 'Mistral', 'Blocs de base', 'Médias', 'Avancé'];
 const TEXT_TYPES = ['p', 'h1', 'h2', 'h3', 'todo', 'ul', 'ol', 'toggle', 'quote', 'callout', 'code'];
 const CONTINUE_TYPES = ['todo', 'ul', 'ol'];
 const PROP_KEYS = ['checked', 'collapsed', 'icon', 'lang', 'pageId', 'rows', 'headerRow', 'headerCol', 'path', 'src', 'name', 'size', 'mime', 'width', 'preview'];
@@ -422,6 +431,7 @@ function renderPage() {
 
   if (isFolder(p)) { root.append(folderView(p)); return; }
   const wrap = h('div', { class: 'wrap' }, h('div', { class: 'blocks', id: 'blocks' }),
+    Extras.hints(p),
     h('div', { class: 'add-below', onclick: addBelowClick }));
   root.append(wrap);
   Media.bindDrop(wrap);
@@ -604,6 +614,9 @@ function blockEl(b, num, only) {
   } else if (Media.isMedia(b)) {
     row.tabIndex = 0;
     row.append(Media.render(b));
+  } else if (b.type === 'toc') {
+    row.tabIndex = 0;
+    row.append(Extras.renderToc(pg()));
   } else if (b.type === 'page') {
     row.tabIndex = 0;
     const sp = S.pages[b.pageId];
@@ -814,6 +827,9 @@ function onInput(e) {
   readContent(b, c);
   row.classList.toggle('only', false);
   touch(pg());
+  if (/^h[123]$/.test(b.type)) Extras.refreshToc();
+  const hints = c.textContent && !c.textContent.startsWith('/') && $('.tpl-hints');
+  if (hints) hints.remove();
 
   if (b.type !== 'code') {
     const txt = c.textContent;
@@ -1173,6 +1189,8 @@ function onClick(e) {
       Table.onAction(act.dataset.act, b); break;
     case 'media-width': case 'media-preview': case 'media-text': case 'media-open':
       Media.onAction(act.dataset.act, b); break;
+    case 'toc-go':
+      e.preventDefault(); Extras.goTo(act.dataset.target); break;
   }
 }
 
@@ -1194,16 +1212,23 @@ function updateSlash() {
   const q = slashQuery();
   if (q == null || q.length > 24 || /\s{2}/.test(q)) return closeSlash();
   const nq = norm(q.trim());
-  slashItems = Object.entries(TYPES).filter(([k, t]) => !nq || norm(t.label + ' ' + t.keys).includes(nq));
+  const gi = (t) => SLASH_GROUPS.indexOf(t.group || 'Blocs de base');
+  slashItems = Object.entries(TYPES).filter(([k, t]) => !nq || norm(t.label + ' ' + t.keys).includes(nq))
+    .sort((x, y) => gi(x[1]) - gi(y[1]));
   if (!slashItems.length && q.length > 3) return closeSlash();
   slashSel = Math.min(slashSel, Math.max(0, slashItems.length - 1));
-  const pop = h('div', { class: 'pop', id: 'slash' }, h('div', { class: 'hdr' }, 'Blocs de base'));
+  const pop = h('div', { class: 'pop', id: 'slash' });
   if (!slashItems.length) pop.append(h('div', { class: 'empty-res' }, 'Aucun résultat'));
-  slashItems.forEach(([k, t], i) => pop.append(h('button', {
+  let lastGroup = null;
+  slashItems.forEach(([k, t], i) => {
+    const g = t.group || 'Blocs de base';
+    if (g !== lastGroup) { pop.append(h('div', { class: 'hdr' }, g)); lastGroup = g; }
+    pop.append(h('button', {
     class: 'item big' + (i === slashSel ? ' sel' : ''),
     onmousedown: (e) => { e.preventDefault(); pickSlash(k); },
     onmousemove: () => { if (slashSel !== i) { slashSel = i; highlightSlash(); } },
-  }, h('span', { class: 'ic' }, t.icon), h('span', {}, h('div', {}, t.label), h('div', { class: 'd' }, t.desc)))));
+  }, h('span', { class: 'ic' }, t.icon), h('span', {}, h('div', {}, t.label), h('div', { class: 'd' }, t.desc))));
+  });
   const r = caretRect() || $(`.block[data-id="${slash.id}"]`).getBoundingClientRect();
   showPop(pop, { left: r.left, top: r.bottom + 4, bottomAlt: r.top - 4 }, true);
   highlightSlash();
@@ -1236,6 +1261,12 @@ function pickSlash(type) {
   rangeOf(c, start, off >= start ? off : start + 1).deleteContents();
   readContent(b, c);
   if (type === 'ai') { touch(pg()); return AI.open(id); }
+  if (type === 'askspace') { touch(pg()); return AI.open(id, { scope: 'space' }); }
+  if (type === 'mistral') { touch(pg()); return AI.open(id, { engine: 'mistral' }); }
+  if (type === 'think') { touch(pg()); return AI.open(id, { engine: 'reflexion' }); }
+  if (type === 'template') { touch(pg()); return Extras.pickTemplate(id); }
+  if (type === 'dictate') { touch(pg()); return Extras.dictate(id); }
+  if (type === 'date') { setCaret(c, start); document.execCommand('insertText', false, Extras.dateLong() + ' '); readContent(b, c); touch(pg()); return; }
   if (type === 'image' || type === 'file') { touch(pg()); return Media.pick(type, id); }
   if (!c.textContent.trim() || type === 'divider') {
     if (type === 'divider' && c.textContent.trim()) {
@@ -1296,7 +1327,7 @@ function blockMenu(b, anchor) {
     items.push('-', ...Table.cellMenu(b, Math.min(lc.r, b.rows.length - 1), Math.min(lc.c, b.rows[0].length - 1)));
   }
   if (Media.isMedia(b)) items.push({ icon: '🔁', label: 'Remplacer le fichier…', action: () => { Media.pick(b.type, b.id, { replaceEmpty: false }); deleteBlock(b.id); } });
-  if (b.type !== 'page' && b.type !== 'divider' && b.type !== 'table' && !Media.isMedia(b)) {
+  if (b.type !== 'page' && b.type !== 'divider' && b.type !== 'table' && b.type !== 'toc' && !Media.isMedia(b)) {
     items.push('-', { header: 'Transformer en' });
     TEXT_TYPES.concat(['table', 'page']).forEach((t) => { if (t !== b.type) items.push({ icon: TYPES[t].icon, label: TYPES[t].label, action: () => turnInto(b, t) }); });
   }
@@ -1304,13 +1335,16 @@ function blockMenu(b, anchor) {
 }
 
 function pageMenu(p, anchor) {
+  const st = isFolder(p) ? null : Extras.stats(p);
   menu(anchor, [
+    st ? { header: `${st.words.toLocaleString('fr-FR')} mot${st.words > 1 ? 's' : ''} · ${st.minutes} min de lecture · ${st.blocks} blocs` } : null,
     { icon: isFav(p) ? '★' : '☆', label: isFav(p) ? 'Retirer des favoris' : 'Ajouter aux favoris', action: () => { toggleFav(p); render(); } },
     { icon: '＋', label: isFolder(p) ? 'Nouvelle page dans le dossier' : 'Ajouter une sous-page', action: () => go(newPage(p.id).id, true) },
     { icon: '📁', label: 'Nouveau dossier à l’intérieur', action: () => go(newFolder(p.id).id, true) },
     { icon: '✏️', label: 'Renommer', action: () => { const t = prompt('Nouveau nom', p.title); if (t != null) { p.title = t.trim(); touch(p); render(); } } },
     { icon: '⧉', label: 'Dupliquer', action: () => go(duplicatePage(p).id) },
     { icon: '↗', label: 'Déplacer vers…', action: () => movePicker(p) },
+    isFolder(p) ? null : { icon: '🧩', label: 'Appliquer un modèle…', action: () => { go(p.id); Extras.pickTemplate(null); } },
     isFolder(p) ? null : { icon: '🕘', label: 'Historique des versions', action: () => Versions.open(p) },
     isFolder(p) ? null : { icon: '⬇', label: 'Exporter en Markdown', action: () => download(`${safeName(titleOf(p))}.md`, toMarkdown(p), 'text/markdown') },
     '-',
@@ -1515,7 +1549,7 @@ $('#file-import').addEventListener('change', async (e) => {
     for (const p of Object.values(d.pages)) {
       if (!p.id || !Array.isArray(p.blocks)) throw new Error('format');
       p.title = String(p.title || '');
-      p.blocks.forEach((b) => { if (!TYPES[b.type] || b.type === 'ai') b.type = 'p'; b.text = String(b.text || ''); });
+      p.blocks.forEach((b) => { if (!TYPES[b.type] || PSEUDO_TYPES.has(b.type)) b.type = 'p'; b.text = String(b.text || ''); });
     }
     const replace = confirm(CLOUD
       ? 'OK : remplacer TOUTES les pages de l’espace (pour tous les membres).\nAnnuler : ajouter les pages importées à l’espace.'
@@ -1597,6 +1631,7 @@ function mdOfBlocks(blocks) {
       case 'table': out.push(Table.toMd(b), ''); break;
       case 'image': out.push(`![${b.name || 'image'}](${b.name || 'image'})`, ''); break;
       case 'file': out.push(`📎 ${b.name || 'fichier'}`, ''); break;
+      case 'toc': break;
       default: out.push(ind + t, '');
     }
     if (b.type !== 'ol') counters[b.indent || 0] = 0;
@@ -1641,6 +1676,7 @@ loadUI();
 applyTheme();
 document.body.classList.toggle('sb-hidden', UI.sbHidden || innerWidth <= 760);
 
+$('#btn-today').addEventListener('click', () => Extras.openToday());
 $('#btn-new').addEventListener('click', () => { go(newPage(null).id, true); if (innerWidth <= 760) setSidebar(false); });
 $('#btn-new2').addEventListener('click', () => { go(newPage(null).id, true); if (innerWidth <= 760) setSidebar(false); });
 $('#btn-folder').addEventListener('click', () => { go(newFolder(null).id, true); });

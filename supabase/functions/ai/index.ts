@@ -1,11 +1,13 @@
-// Proxy vers l'API Groq (compatible OpenAI), réservé aux membres d'un espace. Réponse en streaming SSE.
+// Proxy IA réservé aux membres d'un espace, en streaming SSE (format OpenAI).
+// Moteurs : « rapide » (Groq), « mistral » (Mistral), « reflexion » (Magistral, modèle de raisonnement de Mistral ;
+// à défaut, gpt-oss sur Groq avec un effort de raisonnement élevé).
 import { createClient } from 'npm:@supabase/supabase-js@2.116.0';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Expose-Headers': 'x-model',
+  'Access-Control-Expose-Headers': 'x-model, x-engine',
 };
 
 function json(body: unknown, status = 200) {
@@ -15,21 +17,36 @@ function json(body: unknown, status = 200) {
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
-const GROQ = 'https://api.groq.com/openai/v1';
-const PREFERRED = ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'];
-let resolvedModel: string | null = null;
 
-async function pickModel(key: string): Promise<string> {
-  const res = await fetch(`${GROQ}/models`, { headers: { Authorization: `Bearer ${key}` } });
+type Provider = { name: string; base: string; key?: string; preferred: string[]; envModel?: string };
+const GROQ: Provider = {
+  name: 'groq', base: 'https://api.groq.com/openai/v1', key: Deno.env.get('GROQ_API_KEY'),
+  preferred: ['openai/gpt-oss-120b', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant'], envModel: Deno.env.get('GROQ_MODEL'),
+};
+const MISTRAL: Provider = {
+  name: 'mistral', base: 'https://api.mistral.ai/v1', key: Deno.env.get('MISTRAL_API_KEY'),
+  preferred: ['mistral-medium-latest', 'mistral-large-latest', 'mistral-small-latest'], envModel: Deno.env.get('MISTRAL_MODEL'),
+};
+const MAGISTRAL: Provider = {
+  name: 'mistral', base: 'https://api.mistral.ai/v1', key: Deno.env.get('MISTRAL_API_KEY'),
+  preferred: ['magistral-medium-latest', 'magistral-small-latest'], envModel: Deno.env.get('MISTRAL_REASONING_MODEL'),
+};
+
+const resolved = new Map<string, string>();
+
+async function pickModel(p: Provider): Promise<string> {
+  const res = await fetch(`${p.base}/models`, { headers: { Authorization: `Bearer ${p.key}` } });
   const ids: string[] = res.ok ? ((await res.json()).data || []).map((m: { id: string }) => m.id) : [];
-  return PREFERRED.find((m) => ids.includes(m)) || ids.find((id) => !/whisper|tts|guard|embed/i.test(id)) || PREFERRED[0];
+  return p.preferred.find((m) => ids.includes(m)) || ids.find((id) => !/whisper|tts|guard|embed|ocr|moderation/i.test(id)) || p.preferred[0];
 }
 
-function callGroq(key: string, model: string, messages: unknown[], temperature: number) {
-  return fetch(`${GROQ}/chat/completions`, {
+function call(p: Provider, model: string, messages: unknown[], temperature: number, think: boolean) {
+  const body: Record<string, unknown> = { model, messages, temperature, stream: true, max_tokens: think ? 12000 : 4096 };
+  if (think && p.name === 'groq' && model.includes('gpt-oss')) body.reasoning_effort = 'high';
+  return fetch(`${p.base}/chat/completions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages, temperature, max_tokens: 4096, stream: true }),
+    headers: { Authorization: `Bearer ${p.key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 }
 
@@ -43,34 +60,42 @@ Deno.serve(async (req) => {
   const { count } = await admin.from('members').select('user_id', { count: 'exact', head: true }).eq('user_id', auth.user.id);
   if (!count) return json({ error: 'Réservé aux membres' }, 403);
 
-  const key = Deno.env.get('GROQ_API_KEY');
-  if (!key) return json({ error: 'La clé GROQ_API_KEY n’est pas configurée sur le serveur' }, 503);
-
-  let body: { messages?: { role: string; content: string }[]; temperature?: number };
+  let body: { messages?: { role: string; content: string }[]; temperature?: number; engine?: string };
   try { body = await req.json(); } catch { return json({ error: 'Requête invalide' }, 400); }
   const messages = (body.messages || [])
     .filter((m) => ['system', 'user', 'assistant'].includes(m?.role) && typeof m.content === 'string')
     .slice(-20);
   const size = messages.reduce((n, m) => n + m.content.length, 0);
-  if (!messages.length || size > 60000) return json({ error: 'Contenu vide ou trop long' }, 400);
-  const temperature = Math.min(1.5, Math.max(0, Number(body.temperature ?? 0.6)));
+  if (!messages.length || size > 120000) return json({ error: 'Contenu vide ou trop long' }, 400);
 
-  let model = Deno.env.get('GROQ_MODEL') || resolvedModel || PREFERRED[0];
-  let res = await callGroq(key, model, messages, temperature);
-  if (!res.ok && (res.status === 404 || res.status === 400)) {
+  const engine = ['mistral', 'reflexion'].includes(body.engine || '') ? body.engine! : 'rapide';
+  const think = engine === 'reflexion';
+  let provider = engine === 'mistral' ? MISTRAL : think ? MAGISTRAL : GROQ;
+  if (!provider.key && engine === 'mistral') return json({ error: 'La clé MISTRAL_API_KEY n’est pas configurée sur le serveur' }, 503);
+  if (!provider.key && think) provider = GROQ; // réflexion sans Mistral : gpt-oss en effort élevé
+  if (!provider.key) return json({ error: 'La clé GROQ_API_KEY n’est pas configurée sur le serveur' }, 503);
+
+  const temperature = Math.min(1.5, Math.max(0, Number(body.temperature ?? (think ? 0.7 : 0.6))));
+  const cacheKey = provider.base + provider.preferred[0];
+  let model = provider.envModel || resolved.get(cacheKey) || provider.preferred[0];
+  let res = await call(provider, model, messages, temperature, think);
+  if (!res.ok && [400, 404, 422].includes(res.status)) {
     const err = await res.text();
-    if (/model/i.test(err)) {
-      model = resolvedModel = await pickModel(key);
-      res = await callGroq(key, model, messages, temperature);
-    } else return json({ error: 'Erreur Groq : ' + err.slice(0, 300) }, 502);
+    if (/model|not found|invalid_model/i.test(err)) {
+      model = await pickModel(provider);
+      resolved.set(cacheKey, model);
+      res = await call(provider, model, messages, temperature, think);
+    } else return json({ error: `Erreur ${provider.name} : ` + err.slice(0, 300) }, 502);
   }
   if (!res.ok || !res.body) {
     const err = await res.text();
-    const msg = res.status === 429 ? 'Limite Groq atteinte, réessaie dans un instant' : 'Erreur Groq : ' + err.slice(0, 300);
+    const msg = res.status === 429 ? 'Limite atteinte chez ' + provider.name + ', réessaie dans un instant'
+      : res.status === 401 ? 'Clé API ' + provider.name + ' refusée'
+      : `Erreur ${provider.name} : ` + err.slice(0, 300);
     return json({ error: msg }, res.status === 429 ? 429 : 502);
   }
-  resolvedModel = model;
+  resolved.set(cacheKey, model);
   return new Response(res.body, {
-    headers: { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Model': model },
+    headers: { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'X-Model': model, 'X-Engine': engine },
   });
 });
